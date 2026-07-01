@@ -185,6 +185,7 @@ flowchart TB
 ```
 cartman-ph/
 ├── apps/
+│   ├── cartman-server/        # NestJS API
 │   ├── customer-mobile/       # Flutter or React Native
 │   ├── rider-mobile/
 │   ├── merchant-web/          # React + Vite or Next.js
@@ -220,7 +221,7 @@ cartman-ph/
 | Mobile framework | **TBD** — Flutter or React Native | Native Kotlin/Swift | Both PDFs specify either; see [Open Decisions](#16-open-decisions) |
 | In-app maps | OSM via `flutter_map` or `react-native-maps` | Mapbox, Google Maps | ₱0 API cost baseline |
 | Rider navigation | Deep links to Google Maps / Apple Maps / Waze | In-app routing | External apps only in Phase 1 |
-| Backend | Supabase (PostgreSQL 15+, Auth, Realtime, Storage, Edge Functions) | Custom Node API | Managed, fits provincial budget |
+| Backend | NestJS + Prisma + Supabase (PostgreSQL 15+, Auth, Realtime, Storage) | Pure Supabase Edge Functions | Robust API logic with managed DB/Auth |
 | Push notifications | Firebase Cloud Messaging (FCM) | OneSignal | Background alerts when app is killed |
 | SMS OTP | Semaphore via Supabase Edge Function | Twilio | PH-local SMS gateway |
 | Local persistence | Hive (Flutter) / AsyncStorage (RN) | SQLite | Cart + UI state |

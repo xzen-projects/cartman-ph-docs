@@ -36,8 +36,8 @@ Strategic decisions, constraints, and roadmap extracted from [ARCHITECTURE.md](.
 
 ```
 cartman-ph/
-├── apps/          # customer-mobile, rider-mobile, merchant-web, admin-web, ledger-web
-├── packages/      # shared-types, supabase-client, geo-utils
+├── apps/          # cartman-server, customer-mobile, rider-mobile, merchant-web, admin-web, ledger-web
+├── packages/      # shared-types, geo-utils
 ├── supabase/      # migrations, functions, seed
 └── docs/
 ```
@@ -60,7 +60,7 @@ cartman-ph/
 | Layer | Phase 1 | Rationale |
 |-------|---------|-----------|
 | Mobile | Flutter **or** RN (TBD) | Both PDFs compatible; cross-platform for Phase 2 iOS |
-| Backend | Supabase full stack | Managed, budget-fit for provincial ops |
+| Backend | NestJS API + Supabase | Robust API layer with managed Postgres/Auth |
 | In-app maps | OSM | No API key cost |
 | Rider nav | Deep links | Google/Apple/Waze |
 | Push | FCM | Background/killed app alerts |
@@ -108,7 +108,10 @@ flowchart LR
     AuthSvc[GoTrue]
     RTSvc[Realtime]
     StorageSvc[Storage]
-    EdgeSvc[Edge Functions]
+  end
+
+  subgraph backend [Backend Server]
+    NestAPI[NestJS API Server]
   end
 
   FCM[FCM]
@@ -120,8 +123,11 @@ flowchart LR
   WebMerchant --> PG
   WebAdmin --> PG
   AndroidCust --> OSM
-  EdgeSvc --> Semaphore
-  EdgeSvc --> FCM
+  AndroidCust --> NestAPI
+  AndroidRider --> NestAPI
+  WebMerchant --> NestAPI
+  NestAPI --> Semaphore
+  NestAPI --> FCM
 ```
 
 ### Environments
@@ -139,14 +145,14 @@ flowchart LR
 | Pilot | Direct APK to known riders/customers |
 | Scale | Google Play Store |
 
-### Edge Functions
+### Backend API (NestJS)
 
-| Function | Purpose |
+| Module | Purpose |
 |----------|---------|
-| `send-otp` | Semaphore SMS on registration |
-| `verify-otp` | Validate code, set `phone_verified` |
-| `calculate-delivery-fee` | Server-side courier fee (tamper-proof) |
-| `send-push-notification` | FCM on status change |
+| `AuthModule` | Semaphore SMS on registration, validate code |
+| `OrdersModule` | Race-safe order claim, server-side courier fee, FCM push on status change |
+| `MerchantsModule` | Menu and stock management |
+| `LedgerModule` | Append-only wallet transactions |
 
 ---
 
