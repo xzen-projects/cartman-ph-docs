@@ -210,12 +210,14 @@ xychart-beta
     line [85, 85, 85, 85]
 ```
 
-| Line | Service | Notes |
-|------|---------|-------|
-| 1st (lowest flat) | Render Starter — $7 | RAM risk at 600+ users |
-| 2nd | Railway Pro — $20 → $30 | Rises at 1,000 users when compute exceeds credit |
-| 3rd | Render Standard — $25 | Flat throughout |
-| 4th (highest) | Render Pro — $85 | Flat; over-provisioned for Phase 1 |
+| Color | Series | Service | Notes |
+|-------|--------|---------|-------|
+| 🔵 Blue | 1st defined | Railway Pro — $20 → $30 | Rises at 1,000 users when compute exceeds credit |
+| 🟢 Green | 2nd defined | Render Standard — $25 | Flat throughout |
+| 🟡 Yellow | 3rd defined | Render Starter — $7 | RAM risk at 600+ users |
+| 🔴 Red | 4th defined | Render Pro — $85 | Flat; over-provisioned for Phase 1 |
+
+> Colors reflect Mermaid's default theme series order. They may differ slightly depending on your renderer or theme configuration.
 
 Railway Pro stays flat at $20 through 600 users and only rises to $30 at 1,000. Render Standard is flat at $25 throughout. Railway is cheaper at every point except versus the Render Starter ($7) entry tier.
 
