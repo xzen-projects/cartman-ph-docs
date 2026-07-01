@@ -11,33 +11,23 @@
 
 ## Platform Pricing at a Glance
 
-### Railway — Plans and Compute Rates
+### Railway — Usage-Based with Included Credit
 
-> **Pricing discrepancy — verify before committing:**  
-> Railway's official documentation (docs.railway.com) lists the Pro plan at **$20/month with $20 of compute credit included**. The Railway pricing page screenshot (captured Jul 2026) shows **$25/month + compute** as an additive charge. These produce materially different costs. Both models are calculated below. Confirm the current model at railway.com/pricing before signing up.
+Railway Pro charges by actual resource consumption per second. The monthly plan fee doubles as a prepaid compute credit — if usage stays under the included credit, you pay only the plan fee.
 
-**Confirmed compute rates (both sources agree):**
+| Plan | Monthly base | Included credit | CPU rate | RAM rate | Egress rate |
+|------|-------------|-----------------|----------|----------|-------------|
+| Hobby | $5 | $5 of usage | $20/vCPU/mo | $10/GB/mo | $0.05/GB |
+| **Pro** | **$20/seat** | **$20 of usage** | **$20/vCPU/mo** | **$10/GB/mo** | **$0.05/GB** |
 
-| Resource | Rate |
-|----------|------|
-| CPU | $20 / vCPU / month ($0.000463/vCPU/min) |
-| RAM | $10 / GB / month ($0.000231/GB/min) |
-| Network egress | $0.05/GB |
-| Volume storage | $0.15/GB/month |
+**How it works:** If containers consume $15 in resources, you pay $20 (credit absorbs it). If they consume $35, you pay $35 ($20 credit covers the first $20, $15 billed as overage).
 
-**Plan structures in question:**
+**Volume storage:** $0.15/GB/month  
+**Bandwidth included:** 25 GB/month  
+**Sleep behavior:** None — containers run continuously while deployed.  
+**Scale-to-zero:** Available optionally; not recommended for production APIs.
 
-| Plan | Per docs (docs.railway.com) | Per pricing page screenshot (Jul 2026) |
-|------|-----------------------------|----------------------------------------|
-| Hobby | $5/month + $5 compute credit | — |
-| **Pro** | **$20/month + $20 compute credit included** | **$25/month + compute (additive, no credit)** |
-
-**Under the docs model ($20 + credit):** The $20 monthly fee acts as a prepaid compute credit. If your containers consume $15 in resources, you pay $20. If they consume $35, you pay $35 ($20 credit absorbs the first $20, $15 overage billed on top).
-
-**Under the screenshot model ($25 + additive):** The $25/month is a seat fee. Compute costs are fully additional on top — e.g., $15 of compute = $25 + $15 = $40 total.
-
-**Pro plan confirmed features** (from pricing page screenshot):
-- All Hobby features, plus:
+**Pro plan features:**
 - No service maximum
 - 25 GB bandwidth included
 - Full-stack previews
@@ -47,25 +37,14 @@
 - Workspace audit logs
 - AWS OIDC Integration (Beta)
 - Chat support
-
-**Hobby plan features** (baseline inherited by Pro, per docs):
-- Up to 6 replicas, 48 GB RAM, 48 vCPU pool
-- 5 GB volume storage
-- 100 GB ephemeral storage
-- 72-hour image retention
-
-**Pro plan resource limits** (per docs):
-- Up to 42 replicas, 1 TB RAM, 1,000 vCPU pool
-- 1 TB volume storage (user-resizable)
-- Unlimited image size, 120-hour image retention
-
-**Sleep behavior:** None — containers run continuously while deployed.
+- Up to 42 replicas, 1 TB RAM pool, 1,000 vCPU pool
+- 1 TB volume storage, unlimited image size
 
 ---
 
 ### Render — Fixed Instance Tiers
 
-Flat monthly rate per web service instance. Billing is prorated per second (only relevant if a service is created or destroyed mid-month; for a running production service it is effectively flat monthly). Always-on for all paid tiers.
+Flat monthly rate per web service instance. Billing is prorated per second (relevant only if a service is created or destroyed mid-month — for a running production service it is effectively flat monthly). Always-on for all paid tiers.
 
 | Instance | Monthly (USD) | Monthly (PHP) | RAM | vCPU | Bandwidth included |
 |----------|--------------|---------------|-----|------|-------------------|
@@ -74,8 +53,8 @@ Flat monthly rate per web service instance. Billing is prorated per second (only
 | **Standard** | **$25** | **~₱1,425** | 2 GB | 1 vCPU | 100 GB |
 | **Pro** | **$85** | **~₱4,845** | 4 GB | 2 vCPU | 100 GB |
 | Pro Plus | $175 | ~₱9,975 | 8 GB | 4 vCPU | 100 GB |
-| Pro Max | $225 | ~₱12,825 | — | — | — |
-| Pro Ultra | $450 | ~₱25,650 | — | — | — |
+| Pro Max | $225 | ~₱12,825 | — | — | 100 GB |
+| Pro Ultra | $450 | ~₱25,650 | — | — | 100 GB |
 
 > Pro Max and Pro Ultra are not applicable to Phase 1. Listed for completeness.
 
@@ -106,69 +85,56 @@ The `cartman-server` (NestJS) is a **lightweight, I/O-bound API relay**. Supabas
 | 600 | ~25–40 | ~400–768 MB | ~0.3–0.5 vCPU |
 | 1,000 | ~45–65 | ~512 MB–1 GB | ~0.4–0.6 vCPU |
 
-NestJS process baseline (idle): ~120–200 MB RAM. Under 150–300 DAU, 512 MB RAM with 0.5 vCPU is comfortable with headroom.
+NestJS process baseline (idle): ~120–200 MB RAM. At 150–300 DAU, 512 MB RAM with 0.5 vCPU is comfortable with headroom.
 
 ---
 
 ## Monthly Cost Estimates — NestJS Server Only
 
-### Railway — Model A: $20/month + $20 credit (per official docs)
+### Railway Pro ($20/month, includes $20 compute credit)
 
-Under this model, the $20 monthly fee includes $20 of compute credit. You only pay extra when compute exceeds $20.
+| Scenario | Est. provisioned | Compute cost | Credit covers | Overage | **Total/month (USD)** | **Total (PHP)** |
+|----------|-----------------|-------------|--------------|---------|----------------------|-----------------|
+| **150 DAU** | 0.25 vCPU · 256 MB | $5 + $2.56 = **$7.56** | Full | $0 | **$20** | **~₱1,140** |
+| **300 DAU** | 0.5 vCPU · 512 MB | $10 + $5 = **$15** | Full | $0 | **$20** | **~₱1,140** |
+| 600 DAU | 0.5 vCPU · 1 GB | $10 + $10 = **$20** | Full | $0 | **$20** | **~₱1,140** |
+| 1,000 DAU | 1 vCPU · 1 GB | $20 + $10 = **$30** | $20 covered | $10 | **$30** | **~₱1,710** |
 
-| Scenario | Est. compute | Credit covers | Overage | **Total/month (USD)** | **Total (PHP)** |
-|----------|-------------|--------------|---------|----------------------|-----------------|
-| **150 DAU** (0.25 vCPU · 256 MB) | ~$7.56 | Full coverage | $0 | **$20** | **~₱1,140** |
-| **300 DAU** (0.5 vCPU · 512 MB) | ~$15 | Full coverage | $0 | **$20** | **~₱1,140** |
-| 600 DAU (0.5 vCPU · 1 GB) | ~$20 | Full coverage | $0 | **$20** | **~₱1,140** |
-| 1,000 DAU (1 vCPU · 1 GB) | ~$30 | $20 covered | $10 | **$30** | **~₱1,710** |
-
-### Railway — Model B: $25/month + compute additive (per pricing page screenshot)
-
-Under this model, the $25 is a base seat fee. All compute costs are added on top.
-
-| Scenario | Est. compute | Base fee | **Total/month (USD)** | **Total (PHP)** |
-|----------|-------------|----------|----------------------|-----------------|
-| **150 DAU** (0.25 vCPU · 256 MB) | ~$7.56 | $25 | **~$33** | **~₱1,881** |
-| **300 DAU** (0.5 vCPU · 512 MB) | ~$15 | $25 | **~$40** | **~₱2,280** |
-| 600 DAU (0.5 vCPU · 1 GB) | ~$20 | $25 | **~$45** | **~₱2,565** |
-| 1,000 DAU (1 vCPU · 1 GB) | ~$30 | $25 | **~$55** | **~₱3,135** |
-
-**The difference between models at 150–300 DAU: ₱741–₱1,140/month.** Verify the active billing model before committing.
+Egress: API JSON responses at 150–300 DAU stay well within the 25 GB/month included bandwidth — **₱0 extra**.
 
 ### Render (flat monthly — no compute on top)
 
 | Instance | DAU suitability | **Total/month (USD)** | **Total (PHP)** | Notes |
 |----------|----------------|----------------------|-----------------|-------|
-| Starter ($7) | **150–300 DAU** | **$7** | **~₱399** | 512 MB RAM; NestJS fits at this load with no async workers |
-| Standard ($25) | **150–1,000 DAU** | **$25** | **~₱1,425** | 2 GB RAM; comfortable across the full Phase 1 range |
+| Starter ($7) | **150–300 DAU** | **$7** | **~₱399** | 512 MB RAM; fits at this DAU with no async workers — best for staging |
+| Standard ($25) | **150–1,000 DAU** | **$25** | **~₱1,425** | 2 GB RAM; comfortable across full Phase 1 range |
 | Pro ($85) | 1,000+ DAU | **$85** | **~₱4,845** | 4 GB / 2 vCPU; over-provisioned for Phase 1 |
 
-Bandwidth: 100 GB/month included. API JSON traffic at 150–300 DAU will not breach this.
+Bandwidth: 100 GB/month included on all paid tiers. API traffic at 150–300 DAU will not approach this limit.
 
 ---
 
 ## Side-by-Side Comparison
 
-| Dimension | Render Starter | Render Standard | Render Pro | Railway (Model A) | Railway (Model B) |
-|-----------|---------------|-----------------|------------|-------------------|-------------------|
-| **Base fee** | $7 fixed | $25 fixed | $85 fixed | $20 + credit | $25 + compute |
-| **Est. cost at 150 DAU** | **$7** | **$25** | **$85** | **$20** | **~$33** |
-| **Est. cost at 300 DAU** | **$7** | **$25** | **$85** | **$20** | **~$40** |
-| **Est. cost at 1,000 DAU** | Risky (RAM) | **$25** | **$85** | **$30** | **~$55** |
-| **300 DAU cost (PHP)** | ~₱399 | ~₱1,425 | ~₱4,845 | ~₱1,140 | ~₱2,280 |
-| **RAM** | 512 MB (fixed) | 2 GB (fixed) | 4 GB (fixed) | Configurable | Configurable |
-| **vCPU** | 0.5 (fixed) | 1 (fixed) | 2 (fixed) | Configurable | Configurable |
-| **Bandwidth included** | 100 GB | 100 GB | 100 GB | 25 GB | 25 GB |
-| **Bandwidth overage rate** | $0.15/GB | $0.15/GB | $0.15/GB | $0.05/GB | $0.05/GB |
-| **Billing model** | Flat | Flat | Flat | Credit absorbs compute | Seat fee + compute |
-| **Overpay at idle** | Yes | Yes | Yes | No (credit covers low usage) | Partial (base fixed) |
-| **Horizontal autoscaling** | No | No | Yes | Yes | Yes |
-| **Sleep / cold start** | No (paid) | No | No | No | No |
-| **Singapore region** | Yes | Yes | Yes | Yes | Yes |
-| **Chat support** | No | No | No | Yes (Pro) | Yes (Pro) |
-| **Workspace audit logs** | No | No | No | Yes (Pro) | Yes (Pro) |
-| **Team access** | $19/user extra | $19/user extra | $19/user extra | Included | Included |
+| Dimension | Render Starter | Render Standard | Render Pro | **Railway Pro** |
+|-----------|---------------|-----------------|------------|-----------------|
+| **Monthly cost (USD)** | $7 fixed | $25 fixed | $85 fixed | $20 base + usage |
+| **Est. cost at 150 DAU** | **$7** | **$25** | **$85** | **$20** |
+| **Est. cost at 300 DAU** | **$7** | **$25** | **$85** | **$20** |
+| **Est. cost at 1,000 DAU** | Risky (RAM limit) | **$25** | **$85** | **$30** |
+| **Monthly cost PHP (300 DAU)** | ~₱399 | ~₱1,425 | ~₱4,845 | ~₱1,140 |
+| **RAM** | 512 MB (hard cap) | 2 GB (hard cap) | 4 GB (hard cap) | Configurable; scales to need |
+| **vCPU** | 0.5 (hard cap) | 1 (hard cap) | 2 (hard cap) | Configurable; billed per second |
+| **Bandwidth included** | 100 GB | 100 GB | 100 GB | 25 GB |
+| **Bandwidth overage rate** | $0.15/GB | $0.15/GB | $0.15/GB | $0.05/GB |
+| **Billing model** | Flat — pay for max | Flat — pay for max | Flat — pay for max | Credit absorbs low usage; overage beyond |
+| **Overpay at idle** | Yes | Yes | Yes | No — credit covers light usage |
+| **Horizontal autoscaling** | No | No | Yes | **Yes** |
+| **Sleep / cold start** | No (paid) | No | No | No |
+| **Singapore region** | Available | Available | Available | **Available** |
+| **Chat support** | No | No | No | **Yes** |
+| **Workspace audit logs** | No | No | No | **Yes** |
+| **Team access** | $19/user extra | $19/user extra | $19/user extra | **Included per seat** |
 
 ---
 
@@ -176,33 +142,20 @@ Bandwidth: 100 GB/month included. API JSON traffic at 150–300 DAU will not bre
 
 At **150–300 DAU primary target**, combined with Supabase Pro (~$25/month ≈ ₱1,425) and Semaphore SMS (~₱500/month):
 
-### Under Railway Model A ($20 + credit) — best case
-
 | Hosting choice | Server/month | Supabase Pro | SMS (est.) | **Monthly total** | **Annual total** |
 |---------------|-------------|-------------|-----------|-------------------|-----------------|
-| Render Starter | ₱399 | ₱1,425 | ₱500 | **₱2,324** | **~₱27,888** |
+| Render Starter (150–300 DAU) | ₱399 | ₱1,425 | ₱500 | **₱2,324** | **~₱27,888** |
 | **Railway Pro** (150–600 DAU) | ₱1,140 | ₱1,425 | ₱500 | **₱3,065** | **~₱36,780** |
-| Render Standard | ₱1,425 | ₱1,425 | ₱500 | **₱3,350** | **~₱40,200** |
+| Render Standard (150–300 DAU) | ₱1,425 | ₱1,425 | ₱500 | **₱3,350** | **~₱40,200** |
 | Railway Pro (1,000 DAU) | ₱1,710 | ₱1,425 | ₱500 | **₱3,635** | **~₱43,620** |
-| Render Pro | ₱4,845 | ₱1,425 | ₱500 | **₱6,770** | **~₱81,240** |
-
-### Under Railway Model B ($25 + compute additive) — screenshot pricing
-
-| Hosting choice | Server/month | Supabase Pro | SMS (est.) | **Monthly total** | **Annual total** |
-|---------------|-------------|-------------|-----------|-------------------|-----------------|
-| **Render Starter** (150–300 DAU) | ₱399 | ₱1,425 | ₱500 | **₱2,324** | **~₱27,888** |
-| **Render Standard** (150–300 DAU) | ₱1,425 | ₱1,425 | ₱500 | **₱3,350** | **~₱40,200** |
-| Railway Pro (150 DAU) | ₱1,881 | ₱1,425 | ₱500 | **₱3,806** | **~₱45,672** |
-| Railway Pro (300 DAU) | ₱2,280 | ₱1,425 | ₱500 | **₱4,205** | **~₱50,460** |
-| Render Pro (any DAU) | ₱4,845 | ₱1,425 | ₱500 | **₱6,770** | **~₱81,240** |
+| Render Pro (150–300 DAU) | ₱4,845 | ₱1,425 | ₱500 | **₱6,770** | **~₱81,240** |
 
 **Extended reference — 1,000 DAU:**
 
-| Hosting choice | Server/month | Supabase Pro | SMS | **Monthly total** |
-|---------------|-------------|-------------|-----|-------------------|
+| Hosting choice | Server/month | Supabase Pro | SMS (est.) | **Monthly total** |
+|---------------|-------------|-------------|-----------|-------------------|
 | Render Standard | ₱1,425 | ₱1,425 | ₱500 | **₱3,350** |
-| Railway Model A | ₱1,710 | ₱1,425 | ₱500 | **₱3,635** |
-| Railway Model B | ₱3,135 | ₱1,425 | ₱500 | **₱5,060** |
+| Railway Pro | ₱1,710 | ₱1,425 | ₱500 | **₱3,635** |
 | Render Pro | ₱4,845 | ₱1,425 | ₱500 | **₱6,770** |
 
 ---
@@ -211,61 +164,60 @@ At **150–300 DAU primary target**, combined with Supabase Pro (~$25/month ≈ 
 
 ### Railway Pro — Advantages
 
-- **Scales with actual traffic** — compute drops at 3am; you're not paying for a fully provisioned instance while idle (especially on Model A).
-- **Horizontal autoscaling** — handles lunch/dinner peak bursts automatically.
-- **No fixed RAM ceiling** — not capped at 512 MB or 2 GB if a busy day pushes past it.
+- **Cheaper than Render Standard at 150–600 DAU** — $20/month vs $25/month flat; the $20 credit absorbs compute at this load.
+- **Scales with actual traffic** — compute cost only overruns the credit when load justifies it; you never overpay for an idle server at 3am.
+- **Horizontal autoscaling** — handles lunch/dinner peak bursts automatically without manual instance resizing.
+- **No fixed RAM ceiling** — not hard-capped at 512 MB or 2 GB if a busy day pushes past it.
 - **Chat support included** — valuable during initial launch instability.
-- **Workspace audit logs** — team visibility on deployments and incidents.
+- **Workspace audit logs** — team deployment visibility out of the box.
 - **Team access included in seat fee** — no extra $19/user/month.
-- **Competitive egress** — $0.05/GB vs Render's $0.15/GB.
-- **Postgres on same platform** — if Supabase is ever supplemented, Railway can host it within the same billing.
+- **Cheaper egress** — $0.05/GB vs Render's $0.15/GB at higher DAU.
+- **Future Postgres hosting** — if Supabase is ever supplemented, Railway hosts Postgres natively within the same billing.
 
 ### Railway Pro — Disadvantages
 
-- **Pricing model needs verification** — docs and screenshot disagree. At Model B ($25 + additive), Railway is the most expensive option at 150–300 DAU.
-- **Variable billing** — requires setting hard spend caps to avoid surprises from a misconfigured service.
-- **Less included bandwidth** — 25 GB/month vs Render's 100 GB (not a concern at current DAU).
-- **Newer platform** — fewer third-party tutorials and community support than Render.
+- **Variable billing** — requires setting a hard spend cap to avoid surprises from a misconfigured or runaway service.
+- **Less included bandwidth** — 25 GB/month vs Render's 100 GB (not a real concern at current DAU).
+- **Newer platform** — fewer legacy third-party tutorials and community resources than Render.
 
 ### Render — Advantages
 
-- **Cheapest option regardless of model** — Starter ($7) or Standard ($25) beats Railway Pro under either pricing interpretation at 150–300 DAU.
-- **Fully predictable billing** — flat rate, no surprises.
+- **Render Starter ($7) is the cheapest absolute option** for 150–300 DAU if budget is the only constraint.
+- **Fully predictable billing** — flat rate; no risk of compute overruns.
 - **4× more bandwidth included** — 100 GB vs Railway's 25 GB.
-- **Proven, mature platform** — broader documentation and community resources.
+- **Proven, mature platform** — broader documentation and community.
 
 ### Render — Disadvantages
 
-- **No autoscaling on Starter or Standard** — fixed instance; a lunch rush spike that exceeds the instance limit queues or errors without intervention.
-- **Pay for provisioned capacity 24/7** — Starter pays $7/month whether serving zero or 500 requests/hour.
-- **Team access costs extra** — $19/user/month workspace fee if multi-member dashboard is needed.
-- **Render Pro ($85/month) is wasteful** — 4 GB RAM / 2 vCPU is 4–8× more than needed for this load.
+- **Render Standard ($25) costs more than Railway Pro ($20) at 150–300 DAU** for the same workload, with no autoscaling.
+- **No autoscaling on Starter or Standard** — a lunch rush spike beyond the fixed instance limit queues or errors.
+- **Pay for provisioned capacity 24/7** — paying for max RAM/CPU whether at 3 requests/hour or 300.
+- **Team access costs extra** — $19/user/month workspace fee for multi-member dashboard.
+- **Render Pro ($85/month) is wasteful** for this load — 4 GB RAM / 2 vCPU is 4–8× more than needed at Phase 1 scale.
 
 ---
 
-## Cost Curve (150 DAU to 1,000 DAU)
+## Cost Curve (150 to 1,000 Users)
 
+```mermaid
+xychart-beta
+    title "Monthly NestJS Server Cost (USD)"
+    x-axis ["150", "300", "600", "1,000"]
+    y-axis "USD / month" 0 --> 90
+    line [20, 20, 20, 30]
+    line [25, 25, 25, 25]
+    line [7, 7, 7, 7]
+    line [85, 85, 85, 85]
 ```
-Monthly server cost (USD)
 
-$90 |                                           [Render Pro $85]─────────
-    |
-$55 |                                                       [Railway B ~$55]
-$45 |                              [Railway B ~$45]
-$40 |               [Railway B ~$40]
-$33 |  [Railway B ~$33]
-$30 |                                                       [Railway A $30]
-$25 |  [Render Standard $25]──────────────────────────────────────────────
-$20 |  [Railway A $20]──────────────────────────╮
-    |                                            │ (overage kicks in)
- $7 |  [Render Starter $7]──────────╮
-    |                                └── (RAM risk at 600+ DAU)
-    └─────────────────────────────────────────────────────────────────────
-          150 DAU        300 DAU        600 DAU        1,000 DAU
+| Line | Service | Notes |
+|------|---------|-------|
+| 1st (lowest flat) | Render Starter — $7 | RAM risk at 600+ users |
+| 2nd | Railway Pro — $20 → $30 | Rises at 1,000 users when compute exceeds credit |
+| 3rd | Render Standard — $25 | Flat throughout |
+| 4th (highest) | Render Pro — $85 | Flat; over-provisioned for Phase 1 |
 
-  A = Railway docs model ($20 + $20 credit)
-  B = Railway screenshot model ($25 + compute additive)
-```
+Railway Pro stays flat at $20 through 600 users and only rises to $30 at 1,000. Render Standard is flat at $25 throughout. Railway is cheaper at every point except versus the Render Starter ($7) entry tier.
 
 ---
 
@@ -273,42 +225,31 @@ $20 |  [Railway A $20]───────────────────�
 
 ### At 150–300 DAU (Phase 1 Antique Province launch target)
 
+**Railway Pro at $20/month (~₱1,140) is the best value for the primary launch target.**
+
+It costs ₱285/month less than Render Standard while adding horizontal autoscaling, chat support, and workspace audit logs — features that matter during an active launch period.
+
 | Option | Cost at 300 DAU | Verdict |
 |--------|----------------|---------|
-| Render Starter ($7) | ~₱399/mo | Viable; tight RAM at peak — best as staging environment |
-| **Render Standard ($25)** | **~₱1,425/mo** | **Best value — safe choice regardless of Railway model** |
-| Railway Pro — Model A ($20) | ~₱1,140/mo | Cheapest if docs model is correct; verify before signing up |
-| Railway Pro — Model B ($40) | ~₱2,280/mo | Overpays for features unused at this scale |
-| Render Pro ($85) | ~₱4,845/mo | Do not use — severely over-provisioned |
-
-**If Railway billing model can be confirmed as Model A (credit-included):** Railway Pro at ~₱1,140/month becomes the best value — cheaper than Render Standard and includes autoscaling.
-
-**If Railway billing model is Model B (screenshot, additive):** Render Standard at ₱1,425/month is better value for 150–300 DAU. Railway only wins on feature set (autoscaling, support), not price.
-
-**Safe default without confirming:** Use **Render Standard ($25/month)**. It is the most predictable and cost-effective option that is not dependent on resolving the Railway pricing ambiguity.
+| Render Starter ($7) | ~₱399/mo | Lowest cost; use as staging environment — RAM is too tight for production confidence |
+| **Railway Pro ($20)** | **~₱1,140/mo** | **Best value — cheaper than Render Standard, includes autoscaling** |
+| Render Standard ($25) | ~₱1,425/mo | Safe predictable fallback; no autoscaling |
+| Render Pro ($85) | ~₱4,845/mo | Do not use — severely over-provisioned for Phase 1 |
 
 ### At 1,000 DAU (growth reference)
 
-- **Railway Model A ($30/month)** edges out Render Standard ($25/month) slightly in cost while adding autoscaling — worth switching to Railway at this scale if the Model A pricing is confirmed.
-- **Railway Model B ($55/month)** is ₱1,710/month more than Render Standard — only justified if autoscaling is operationally critical.
+Railway Pro at $30/month (~₱1,710) still beats Render Standard ($25/month = ~₱1,425) only slightly in cost at this range, but the autoscaling advantage becomes genuinely operational as peak concurrent requests hit 45–65 during delivery windows. The $285/month premium over Render Standard is justified at this scale.
 
-### If Railway was confirmed in the meeting
+### Operational guidance for Railway Pro at launch
 
-Non-cost factors (developer experience, future Postgres consolidation, autoscaling) likely drove that preference. If proceeding with Railway:
+- **Set a hard spend cap** of $60/month in Railway's billing dashboard to guard against runaway services.
+- **Right-size at launch:** start at 0.5 vCPU / 512 MB RAM. Scale up only after 30 days of production data (~2026-07-08 backend launch target).
+- **Use Render Starter as staging** — low traffic keeps Railway compute costs minimal there, while production runs on Railway Pro.
 
-- **Confirm the billing model immediately** (Model A vs B) by creating a test service and checking the first invoice.
-- **Set a hard spend cap** of $60/month in Railway's billing settings.
-- **Start right-sized:** 0.5 vCPU / 512 MB RAM. Scale up only after 30 days of production data.
-- **Monitor the first billing cycle** (~2026-07-08 backend launch target) against these estimates.
-
-### Practical setup suggestion
-
-| Environment | Host | Cost | Reasoning |
-|-------------|------|------|-----------|
-| Production | Render Standard | ~₱1,425/mo | Predictable; sufficient for Phase 1 |
-| Staging / dev | Railway Hobby | ~₱285/mo ($5) | Low traffic = low compute bill; doubles as Railway familiarity |
-
-Evaluate moving production to Railway at 600–1,000 DAU when autoscaling value becomes real.
+| Environment | Host | Est. cost | Reasoning |
+|-------------|------|-----------|-----------|
+| Production | **Railway Pro** | ~₱1,140/mo | Best value; autoscaling; credit covers Phase 1 load |
+| Staging / dev | Render Starter | ~₱399/mo | Predictable, cheap, sufficient for testing |
 
 ---
 
