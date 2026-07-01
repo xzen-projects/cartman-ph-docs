@@ -12,12 +12,14 @@ Process and interaction flows extracted from [ARCHITECTURE.md](../../ARCHITECTUR
 | [Rider registration](#rider-registration-approval) | Onboarding | Rider, Admin |
 | [Merchant registration](#merchant-registration-approval) | Onboarding | Merchant, Admin, Storage |
 | [Food order lifecycle](#food-order-lifecycle) | Core | Customer, Merchant, Rider |
+| [COD ID validation](#cod-id-validation) | Core | Customer, Admin |
 | [Errand order](#errand-pabili-order) | Core | Customer, Rider, Ops |
 | [Courier order](#courier-order) | Core | Customer, Rider |
 | [Rider order claim](#rider-order-claim-race-condition) | Dispatch | Multiple riders |
 | [Rider delivery progression](#rider-delivery-status-progression) | Dispatch | Rider |
 | [Merchant order queue](#merchant-order-queue) | Fulfillment | Merchant |
 | [Wallet and lockout](#wallet-and-lockout) | Finance | Rider, Admin |
+| [Support ticket and override](#support-ticket-and-override) | Admin | Customer/Rider, Admin |
 | [Realtime subscriptions](#realtime-subscription-flows) | Events | All clients |
 | [Push notification](#push-notification-flow) | Events | FCM |
 
@@ -161,6 +163,33 @@ stateDiagram-v2
 
 ---
 
+## COD ID Validation
+
+**Context:** To prevent fraud on Cash on Delivery transactions.  
+Valid ID is **not** required during registration (skip button allowed) but **is** mandatory to finalize any COD order.
+
+```mermaid
+flowchart TD
+  Register[Customer registers] --> Skip[Skip ID upload — allowed]
+  Skip --> Browse[Browse and add to cart]
+  Browse --> Checkout[Proceed to checkout]
+  Checkout --> PayCOD{Payment = COD?}
+  PayCOD -->|No| Confirm[Place order normally]
+  PayCOD -->|Yes| IDCheck{id_document_url present?}
+  IDCheck -->|Yes| Confirm
+  IDCheck -->|No| Popup[Popup: Upload valid ID to proceed with COD]
+  Popup --> Upload[Customer uploads national ID]
+  Upload --> Confirm
+```
+
+| State | Gate |
+|-------|------|
+| Registration | ID upload optional (skip allowed) |
+| COD checkout | `profiles.id_document_url` must be present |
+| Admin review | Admin can mark `id_verified = true` after document check |
+
+---
+
 ## Errand (Pabili) Order
 
 **Refs:** C-5.2
@@ -286,6 +315,34 @@ flowchart TB
 | `credit_remittance` | Admin ledger | Rider remits cash |
 
 Rider app: **SELECT only** on `rider_wallet_transactions`.
+
+---
+
+## Support Ticket and Override
+
+**Context:** Admins can perform account overrides (password reset, auth bypass) after user submits a support ticket and confirms.
+
+```mermaid
+sequenceDiagram
+  participant U as User (Customer/Rider)
+  participant DB as PostgreSQL
+  participant Admin as Admin Dashboard
+
+  U->>DB: INSERT support_ticket (type, description)
+  Admin->>DB: SELECT open tickets
+  Admin-->>Admin: Review ticket details
+  Admin->>U: Contact user for confirmation (out-of-band)
+  U-->>Admin: User confirms override request
+  Admin->>DB: Execute override (password reset / auth bypass)
+  Admin->>DB: UPDATE ticket status=resolved, resolution_notes
+  DB-->>U: Account access restored
+```
+
+| Override type | Admin action |
+|---------------|-------------|
+| `password_reset` | Admin triggers auth password reset |
+| `account_unlock` | Admin sets `verification_status = approved` or clears lockout |
+| `verification_override` | Admin manually sets `id_verified = true` or `phone_verified = true` |
 
 ---
 

@@ -43,7 +43,9 @@ flowchart TB
   subgraph ops [Operations and Admin]
     Approvals[Rider and Merchant Approval]
     DispatchMap[Dispatch Oversight]
-    Config[System Config]
+    Config[System Config / Fee Thresholds]
+    Tickets[Support Tickets]
+    Overrides[Account Overrides]
   end
 
   subgraph notify [Notifications and Comms]
@@ -181,8 +183,13 @@ Merchants with `status != active` do not appear in customer browse or receive li
 | Manual intervention | Order reassignment, cancellation, status override |
 | Zone management | Antique barangay/municipality config |
 | Rider suspension | `is_active`, `verification_status` |
-| System config | Fees, commission `C_m`, lockout threshold |
+| System config | Fees, commission `C_m`, lockout threshold — managed via `system_config` table |
+| Delivery fee thresholds | Global adaptive threshold variables; configurable on the fly |
 | Financial reporting | Ledger aggregates |
+| Support tickets | Review and resolve user account issues via `support_tickets` |
+| Account overrides | Password reset, auth bypass, ID/phone verification override after ticket + user confirmation |
+| Operational monitoring | Active rider status, system health, end-to-end performance |
+| COD ID verification | Review uploaded ID documents; set `profiles.id_verified` |
 
 ---
 

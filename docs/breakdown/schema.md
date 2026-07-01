@@ -77,7 +77,9 @@ Extension of `auth.users`. Central role and identity record.
 | `id` | `uuid` PK | FK → `auth.users.id` |
 | `role` | `enum` / `text` | `customer`, `rider`, `merchant`, `admin` |
 | `full_name` | `text` | Display name |
-| `phone_verified` | `boolean` | Required before COD checkout |
+| `phone_verified` | `boolean` | Required before COD checkout; verified via SIM registration OTP |
+| `id_document_url` | `text` nullable | Supabase Storage path; required to unlock COD transactions |
+| `id_verified` | `boolean` | Set by admin after document review |
 | `created_at` | `timestamptz` | Default `now()` |
 
 ---
@@ -329,6 +331,48 @@ RETURNING *;
 |---------------|---------|--------|
 | Merchant documents | Business permits | Merchant owner + admin |
 | Menu images | `menu_items` photos | Public read; merchant write |
+
+---
+
+### `system_config`
+
+Global admin-configurable platform variables. Single-row or keyed config store.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `key` | `text` PK | Config key identifier |
+| `value` | `jsonb` | Config value (number, object, or array) |
+| `updated_at` | `timestamptz` | Last admin modification |
+| `updated_by` | `uuid` FK | → `profiles.id` (admin only) |
+
+**Delivery fee keys:**
+
+| Key | Example value | Description |
+|-----|--------------|-------------|
+| `delivery_fee_base_km` | `2` | Flag-down radius in km |
+| `delivery_fee_base_rate` | `50` | Base fee in PHP |
+| `delivery_fee_thresholds` | `[{"km": 5, "rate": 80}, ...]` | Distance threshold bands |
+| `rider_penalty_decline_limit` | `3` | Repeated declines before penalty |
+| `wallet_lockout_threshold` | `-2000` | W_r threshold for rider lockout |
+| `commission_rate` | `0.10` | C_m commission split |
+
+---
+
+### `support_tickets`
+
+User-submitted account assistance requests.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `uuid` PK | |
+| `requester_id` | `uuid` FK | → `profiles.id` |
+| `ticket_type` | `text` | `password_reset`, `account_unlock`, `verification_override`, `other` |
+| `status` | `text` | `open`, `in_review`, `resolved`, `closed` |
+| `description` | `text` | User-provided details |
+| `admin_id` | `uuid` FK nullable | Admin who handled the ticket |
+| `resolution_notes` | `text` nullable | Admin override action taken |
+| `created_at` | `timestamptz` | |
+| `resolved_at` | `timestamptz` nullable | |
 
 ---
 
