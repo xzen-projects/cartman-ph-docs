@@ -1,10 +1,24 @@
 # Rider Dispatch Weighting — Delivery + Pasakay
 
-**Status:** Proposal — Phase 2 (`strategy.md` lists "Auto-dispatch" under Phase 2 future scope). Not implemented. Nothing in this document changes Phase 1 behavior.
+**Status:** Implemented (Phase 1) — `cartman-server/src/orders/feed.service.ts`. A single-factor-sum, advisory ranked feed (`GET /orders/feed`) shipped instead of Phase 2, with env-tunable weights. See the delta table below for what shipped vs. what's still proposal-only.
 
 **Origin:** Write-up of the "Rider allocation algorithm" idea noted in [meeting-notes-2026-07-01.md](../../references/meeting-notes-2026-07-01.md) ("Weighted by distance, active order count, and rider success history; adaptive threshold rather than fixed limit").
 
-**Relationship to current system:** Today, ready orders broadcast to every on-duty rider in the service zone at once; whoever taps first wins via a race-safe `UPDATE ... WHERE assigned_rider_id IS NULL` (see [flows.md § Rider Order Claim](../breakdown/flows.md#rider-order-claim-race-condition), target latency <50ms). This proposal does **not** replace that claim mechanic. It adds a layer in front of it that controls *who sees the order and when*, using a per-rider weight score. The underlying claim stays a race-safe DB update — weighting only affects visibility timing, never grants an order outright.
+## Proposal vs. shipped
+
+| Aspect | This proposal | Shipped (Phase 1, `feed.service.ts`) |
+|---|---|---|
+| Mechanism | Staggered waves — ranked candidates revealed to a quantile band at a time, expanding on timeout (§4) | **Single ranked feed** — `GET /orders/feed` returns the full top-20 candidate list at once, ordered by score; no wave gating |
+| Score formula | 5 factors: `active_workload`, `daily_throughput`, `proximity`, `trip_length`, `reliability`, × `type_modifier` (§3) | **4 factors**: age (0.40) + proximity (0.30) + payout (0.20) + type weight (0.10) — no workload/throughput/trip-length/reliability terms |
+| Weight tuning | Admin-configurable `w1..w5` + `type_modifier` via a dashboard surface | **Env vars** (`FEED_W_AGE`, `FEED_W_PROX`, `FEED_W_PAYOUT`, `FEED_W_TYPE`) — no admin UI, no per-type modifier |
+| Candidate pool filters | Hard filters: on-duty, verified, not wallet-locked, max proximity radius, stacking cap (§2) | On-duty + wallet-lock check happen at **claim** time, not feed-scoring time; no max-radius filter (proximity is a score term, not a hard cutoff) beyond the 10 km scoring range; no stacking-cap filter in the feed query itself (queue-depth cap 2 is enforced at claim) |
+| `reliability` factor (decline tracking) | Proposed — requires persisting decline events server-side (§3, "Dependency this proposal introduces") | **Not built** — declines remain local-only (Hive), never sent to the server |
+| `pasakay`/`ride` type | Proposed as a same-shape addition to `order_type` (§1) | **Already shipped independently** — `ride` is a real `order_type` enum value with `TYPE_WEIGHTS.ride = 1.0` (highest priority) in `feed.service.ts` |
+| Claim mechanic | Unchanged — race-safe DB update (§ Relationship below) | **Unchanged as designed** — `PATCH /orders/:id/claim`, conditional `updateMany`, first-writer-wins |
+
+Everything below this point (§1–§6) is the **original proposal as written** — it describes the staggered-wave, 5-factor design that was *not* built. Read it as "what a Phase 2 iteration could look like," not as a description of the shipped feed.
+
+**Relationship to current system:** The claim mechanic is unchanged from what this proposal assumed: whoever taps first wins via a race-safe conditional update (see [flows.md § Rider Order Claim](../breakdown/flows.md#rider-order-claim-race-condition), target latency <50ms; implemented in `cartman-server`, not a raw client SQL statement). What *did* change from the "broadcast to every on-duty rider at once" baseline this proposal was written against: the feed is no longer a flat broadcast — `GET /orders/feed` now returns a **weighted-ranked** list (§ shipped column above), though as a single list, not the staggered waves this proposal describes. This proposal does **not** replace the claim mechanic. It (still, as originally proposed) describes a layer in front of it that would control *who sees the order and when* — the shipped feed is a simpler version of that layer, using ranking instead of wave-gated visibility. The underlying claim stays a race-safe DB update either way — weighting only ever affects visibility/ordering, never grants an order outright.
 
 ---
 
