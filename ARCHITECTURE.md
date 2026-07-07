@@ -337,7 +337,7 @@ sequenceDiagram
   Auth->>DB: create auth.users
   DB->>DB: handle_new_user() trigger creates profiles(role=rider) + riders(is_active=false)
   Auth-->>R: session (JWT)
-  R-->>R: unlock rider home; toggle on-duty (riders.is_active) when ready
+  R-->>R: unlock rider home — toggle on-duty (riders.is_active) when ready
 ```
 
 **Not implemented:** the approval workflow (document upload, admin review, `verification_status: pending/approved/rejected/suspended`) originally designed here. The current schema has no `verification_status` column — `is_active` (on-duty toggle) is the only feed-eligibility gate. Treat approval as a deferred gap, not a shipped feature (§10.4 open items).
@@ -599,7 +599,7 @@ sequenceDiagram
   DB->>RT: WAL broadcast status=accepted
   RT-->>Cust: rider assigned
   Rider->>Server: PATCH /orders/:id/status (chain to delivered)
-  Server->>DB: legal-transition write; ledger credit on delivered
+  Server->>DB: legal-transition write, ledger credit on delivered
   DB->>RT: WAL broadcast status=delivered
   RT-->>Cust: delivered
   Server->>FCM: webhook fan-out attempt
