@@ -249,7 +249,7 @@ See [schema.md](./schema.md) for full RLS table.
 - Digital payments (GCash, Maya)
 - In-app turn-by-turn
 - Multi-province expansion
-- Auto-dispatch, surge pricing
+- Auto-dispatch, surge pricing — see [rider-dispatch-weighting.md](../proposals/rider-dispatch-weighting.md) proposal
 - Loyalty / promotions
 - Cartman Pro merchant subscription tier
 
@@ -268,7 +268,7 @@ See [schema.md](./schema.md) for full RLS table.
 | Distribution | Sideload vs Play Store | Sideload pilot → Franz's Play Console → Cartman PH account | Launch plan |
 | Organization account | Google/Apple org registration | Under investigation (Benjamen) | App store 14-day bypass |
 | PDF order printing | Support vs skip | Under investigation for larger merchants | Merchant panel |
-| 2FA implementation | Email OTP vs authenticator | Under investigation (Louie) | Auth hardening |
+| 2FA implementation | Email OTP vs authenticator | **RESOLVED: Email OTP via Resend** (confirmed Jul 2, 2026) — raw HTTP call to Resend's API, no SDK, matching the existing Semaphore SMS pattern | — |
 
 ---
 

@@ -135,7 +135,7 @@ VPS is only part of the bill. Queueing, database, and management APIs run on Sup
 | Hostinger KVM 1 | ~~₱409/mo~~ | **₱679/mo** |
 | Hostinger KVM 2 (if workers) | ~~₱549/mo~~ | **₱819/mo** |
 | Supabase Pro (~$25 USD) | — | **~₱1,400/mo** |
-| Semaphore SMS (OTP volume) | — | **₱200–800/mo** |
+| Semaphore SMS (OTP volume) | — | **₱56–560/mo** (see [sms-gateway-cost-breakdown.md](./sms-gateway-cost-breakdown.md) for sourced per-message pricing) |
 | FCM | — | **₱0** |
 
 ### Example monthly totals (renewal pricing)
@@ -245,3 +245,6 @@ When presenting costs to stakeholders, lead with **renewal and list prices**. In
 | [strategy.md](../breakdown/strategy.md) | Deployment strategy, stack decisions |
 | [flows.md](../breakdown/flows.md) | Order, dispatch, and queue flows |
 | [schema.md](../breakdown/schema.md) | Database tables and Realtime-related schema |
+| [render-vs-railway.md](./render-vs-railway.md) | `cartman-server` hosting cost comparison |
+| [sms-gateway-cost-breakdown.md](./sms-gateway-cost-breakdown.md) | Semaphore vs alternatives, sourced per-message pricing |
+| [total-app-cost-breakdown.md](./total-app-cost-breakdown.md) | Full consolidated cost of the entire Cartman PH stack |

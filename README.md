@@ -25,6 +25,8 @@ Documentation repository for the **Cartman PH** delivery platform (Phase 1: Anti
 3. **Source PDFs** (optional, for task-level acceptance criteria):
    - [Cartman PH - Customer-Side Mobile Application.pdf](./Cartman%20PH%20-%20Customer-Side%20Mobile%20Application.pdf) — Tasks C-1.1 through C-7.2
    - [Cartman PH - Rider Side Mobile Application Task List.pdf](./Cartman%20PH%20-%20Rider%20Side%20Mobile%20Application%20Task%20List.pdf) — Tasks R-1.1 through R-6.3
+4. **[docs/proposals/](./docs/proposals/)** — Not-yet-decided designs for future phases (Phase 2+). Not canonical, not implemented.
+   - [rider-dispatch-weighting.md](./docs/proposals/rider-dispatch-weighting.md) — Weighted priority-wave dispatch for delivery + Pasakay orders
 
 ---
 
