@@ -35,24 +35,24 @@ Strategic decisions, constraints, and roadmap extracted from [ARCHITECTURE.md](.
 
 ## Repository Strategy
 
-**Decision:** Monorepo (`cartman-ph/`)
+**Planned:** Monorepo (`cartman-ph/`). **Implemented: polyrepo instead** — see [ARCHITECTURE.md §4](../../ARCHITECTURE.md#4-repository-layout) for the actual layout and how drift is mitigated without shared tooling.
 
 ```
-cartman-ph/
-├── apps/          # cartman-server, customer-mobile, rider-mobile, merchant-web, admin-web, ledger-web
-├── packages/      # shared-types, geo-utils
-├── supabase/      # migrations, functions, seed
-└── docs/
+cartmanph-master-dir/            # actual layout — workspace root, not a git repo
+├── cartman-server/               # NestJS 11 + Prisma 7
+├── cartman-mobile/                # Flutter melos: apps/customer, apps/rider, packages/core, supabase/
+├── Cartman-PH-Dashboard/         # Next.js 16 admin dashboard — UI-only prototype
+└── cartmanph-docs/                # this repo
 ```
 
-| Rationale | Detail |
+| Original rationale | Implemented reality |
 |-----------|--------|
-| Shared enums | Order status, wallet txn types sync across 5 surfaces |
-| RLS co-location | Migrations reviewed before any app deploy |
-| Type safety | Shared DTOs in `packages/shared-types` |
-| CI | One pipeline runs migration checks + app builds |
+| Shared enums across 5 surfaces via one repo | No shared package — `cartman-server/prisma/schema.prisma` and `cartman-mobile/supabase/migrations` are kept in sync manually |
+| RLS co-location, reviewed before any app deploy | RLS still lives in `cartman-mobile/supabase/migrations`; `cartman-server` deploys independently via `render.yaml` |
+| Shared DTOs in `packages/shared-types` | Does not exist — each repo defines its own DTOs/models |
+| One CI pipeline for migration checks + app builds | No cross-repo CI — each repo gates independently (`npm test`/`melos run analyze`) |
 
-**Ledger placement (recommended):** Admin module in Phase 1; split to `ledger-web` if team grows.
+**Ledger placement:** implemented as server-side writers inside `cartman-server` (delivered-transition handler + `POST /ledger/transactions`) — not a standalone `ledger-web`, and not yet wired into the admin dashboard's Finance page either.
 
 ---
 
@@ -63,12 +63,12 @@ cartman-ph/
 | Layer | Phase 1 | Rationale |
 |-------|---------|-----------|
 | Mobile | **Flutter** (confirmed) | Cross-platform; team confirmed on Jul 1, 2026 |
-| Backend | NestJS API + Supabase, hosted on **Railway** | Pay-as-you-go; supports DB hosting; single Singapore server |
+| Backend | **Implemented:** NestJS 11 + Prisma 7 on **Render** (Singapore region) — `cartman-server` is the authoritative writer for orders/dispatch/ledger/OTP; Supabase remains Auth/DB/Realtime/Storage | Render superseded the earlier Railway evaluation (see Open Decisions) |
 | In-app maps | OSM | No API key cost; Google Maps API avoided (geocoding costs) |
 | Rider nav | Deep links | Google/Apple/Waze |
-| Push | FCM | Background/killed app alerts |
-| SMS | Semaphore + Edge Functions | PH-local OTP |
-| Web panels | React + Vite (recommended) | Lightweight SPAs |
+| Push | FCM — **fan-out is a logging stub**, no real device delivery yet | Needs a Firebase project + `firebase-admin` fan-out work |
+| SMS | Semaphore, called server-side by `cartman-server` | PH-local OTP; deprecated `otp-send`/`otp-verify` Edge Functions replaced by `POST /auth/send-otp\|verify-otp` |
+| Web panels | **Implemented:** Next.js 16 + Tailwind v4 — admin dashboard shipped **UI-only** (no fetch layer, no auth); merchant panel not started | See [ARCHITECTURE.md §10.3–10.4](../../ARCHITECTURE.md#103-merchant-web-panel) |
 | Local cache | Hive | Offline cart, declined orders |
 | Image caching | Flutter `cached_network_image` | Reduces load on client and server |
 
@@ -92,25 +92,23 @@ Codebase stays cross-platform-ready (Flutter) for Phase 2 iOS.
 
 ## Delivery Fee Strategy
 
-The delivery fee model uses a **global threshold-based system** managed through the admin dashboard.
+The design below (global admin-configurable threshold system) is **not implemented**. Fee is computed server-side in `cartman-server`'s `orders.service.ts` at order placement — tamper-proof in the sense that the client can't set its own fee, but there is no `system_config` table and no admin UI to tune thresholds without a code deploy.
 
-| Parameter | Detail |
-|-----------|--------|
-| Baseline | Flag-down rate for first 2 km radius |
-| Structure | Distance thresholds configurable as global variables |
-| Management | Admin dashboard global config — adjustable on the fly |
-| Calculation | Adaptive pricing; avoids static/hardcoded fee tables |
-| Geocoding | Cost-effective routing preferred; Google Maps geocoding API avoided |
-
-The admin can modify thresholds without a code deploy. Courier fee calculation runs server-side via Edge Function for tamper-proofing.
+| Parameter | Design | Implemented reality |
+|-----------|--------|----------------------|
+| Baseline | Flag-down rate for first 2 km radius | Hardcoded in server logic, not admin-configurable |
+| Structure | Distance thresholds configurable as global variables | Same — hardcoded |
+| Management | Admin dashboard global config, adjustable on the fly | **No config surface exists** |
+| Calculation | Adaptive pricing; avoids static/hardcoded fee tables | Computed server-side (not client-side, not an Edge Function) |
+| Geocoding | Cost-effective routing preferred | Lat/lng columns, no geocoding service integration confirmed |
 
 ---
 
 ## Support Ticket and Override System
 
-To handle account issues without direct DB access for end users:
+**Not implemented.** No `support_tickets` table exists in the schema, and there is no admin override flow (password reset / auth bypass gated by a ticket) in code. The design below remains a Phase 2+ candidate.
 
-| Capability | Detail |
+| Capability | Design (not built) |
 |------------|--------|
 | Support tickets | Users submit tickets for account assistance |
 | Admin override | Password reset or auth bypass executable by admin after ticket + user confirmation |
@@ -126,8 +124,7 @@ flowchart LR
   subgraph clients [Phase 1 Clients]
     AndroidCust[Customer APK]
     AndroidRider[Rider APK]
-    WebMerchant[Merchant Web]
-    WebAdmin[Admin Web]
+    WebAdmin[Admin Dashboard\nUI-only, not wired to live API yet]
   end
 
   subgraph supa [Supabase per Environment]
@@ -137,25 +134,25 @@ flowchart LR
     StorageSvc[Storage]
   end
 
-  subgraph backend [Backend Server]
-    NestAPI[NestJS API Server]
+  subgraph backend [cartman-server on Render]
+    NestAPI[NestJS 11 API\nSingapore region]
   end
 
-  FCM[FCM]
+  FCM[FCM — stub]
   Semaphore[Semaphore SMS]
   OSM[OSM Tiles]
 
   AndroidCust --> PG
   AndroidRider --> PG
-  WebMerchant --> PG
-  WebAdmin --> PG
   AndroidCust --> OSM
   AndroidCust --> NestAPI
   AndroidRider --> NestAPI
-  WebMerchant --> NestAPI
+  NestAPI --> PG
   NestAPI --> Semaphore
-  NestAPI --> FCM
+  NestAPI -.-> FCM
 ```
+
+No Merchant Web / Ledger Web nodes — neither exists (§10.3, §10.5 of ARCHITECTURE.md). Admin Dashboard exists but doesn't call `NestAPI` yet.
 
 ### Environments
 
@@ -177,32 +174,37 @@ flowchart LR
 
 **TestFlight (iOS):** Alternative to production iOS release; allows controlled beta testing while native iOS app is finalized.
 
-### Backend API (NestJS)
+### Backend API (NestJS) — implemented modules
 
-| Module | Purpose |
-|----------|---------|
-| `AuthModule` | Semaphore SMS on registration, validate code |
-| `OrdersModule` | Race-safe order claim, server-side courier fee, FCM push on status change |
-| `MerchantsModule` | Menu and stock management |
-| `LedgerModule` | Append-only wallet transactions |
+| Module | Purpose | Status |
+|----------|---------|--------|
+| `AuthModule` | `send-otp`/`verify-otp` → Semaphore; validates code; not tied to signup | Implemented |
+| `OrdersModule` | Placement, race-safe claim (conditional `updateMany`), legal-transition status guard, server-side fee calc, customer cancel, admin cancel/reassign (in progress) | Implemented (admin cancel/reassign in progress, branch `admin-endpoints`) |
+| `FeedModule`/feed service | Weighted priority feed (`GET /orders/feed`) | Implemented |
+| `RidersModule` | On-duty toggle, batched telemetry, history | Implemented |
+| `LedgerModule` | Append-only wallet transactions — delivered-transition writer + `POST /ledger/transactions` (admin) | Implemented |
+| `AdminModule` | Stats, orders (list/detail/cancel/reassign), riders, merchants, ledger reads | **In progress** — branch `admin-endpoints` |
+| `WebhooksModule` | Inbound webhook receiver → FCM fan-out | Implemented, but FCM fan-out is a **logging stub** |
+
+There is no `MerchantsModule` for panel-style menu/stock CRUD — menu browse is a direct Supabase read, and merchant catalog rows are seeded by ops (§ domains.md).
 
 ---
 
 ## Security Strategy
 
-| Control | Implementation |
-|---------|----------------|
-| Authorization | Single auth pool + `profiles.role` + RLS |
-| Wallet integrity | Admin-only INSERT on ledger; rider SELECT only |
-| OTP abuse | Rate limit ~3 / 15 min per phone in Edge Function |
-| PII | Customer phone visible to assigned rider during active order only |
-| Secrets | Service role key in Edge Functions only, never in APK |
-| Merchant docs | Storage RLS: owner + admin |
-| API protection | Standard API keys + rate limiting on all endpoints |
-| Server | Single Singapore server; no CDN required for current PH volume |
-| Phone verification | SIM registration-based phone number mandatory for customer accounts |
-| COD fraud prevention | Valid ID required to finalize COD transaction (popup at checkout, skippable at registration) |
-| Email OTP | Email service free tier ~3,000/month for 2FA and password reset OTPs |
+| Control | Implementation | Status |
+|---------|----------------|--------|
+| Authorization | `JwtAuthGuard` + `RolesGuard` on `cartman-server` for writes; RLS for direct reads (defense-in-depth) | Implemented |
+| Wallet integrity | Writers are the server's delivered-transition handler + `POST /ledger/transactions` (`@Roles('admin')`) — not a raw DB insert from a ledger UI; rider app reads via `GET /ledger/me/*` only | Implemented |
+| OTP abuse | `ThrottlerGuard` at 10 req/min on OTP routes | Implemented (replaces the earlier per-phone Edge Function throttle) |
+| PII | Customer phone visible to assigned rider during active order only | Implemented |
+| Secrets | Service role key not used by `cartman-server` (it authenticates via `DATABASE_URL`/`DIRECT_URL`); never shipped in APKs | Implemented |
+| Merchant docs | N/A — no merchant document upload exists | Not applicable (§10.3) |
+| API protection | `helmet`, env-driven CORS, `ThrottlerGuard` (100/min global), global `ValidationPipe({whitelist:true})`, exception filter, env validation at boot | Implemented |
+| Server | Single Singapore server (Render); no CDN required for current PH volume | Implemented |
+| Phone verification | Phone OTP gates COD checkout, not account creation | Implemented, but not a signup requirement (see Open Decisions history) |
+| COD fraud prevention | Valid-ID popup at checkout | **Not implemented** — no `id_document_url`/`id_verified` columns exist |
+| Email OTP | `otp_codes.channel = 'email'` column exists | **Dormant** — only the `sms` channel is wired end-to-end |
 
 See [schema.md](./schema.md) for full RLS table.
 
@@ -227,21 +229,24 @@ See [schema.md](./schema.md) for full RLS table.
 
 ## Phase Roadmap
 
-### Phase 1 (current)
+### Phase 1 — implementation status
 
 - Antique Province
-- Android Customer + Rider (native Flutter apps)
-- iOS Customer access via web app (interim)
-- Merchant Panel, Admin Dashboard, Financial Ledger
-- COD, OSM, food + errand + courier
-- Supabase Realtime + FCM
-- Railway backend hosting (Singapore)
-- Threshold-based adaptive delivery fee (admin configurable)
-- Phone number + SIM verification for customers
-- Mandatory valid ID for COD checkout
-- Rider custom drop-off points
-- Support ticket + admin override system
-- Operational monitoring dashboard
+- Android Customer + Rider (native Flutter apps) — **implemented**
+- iOS Customer access via web app (interim) — not implemented
+- Merchant Panel — **not built**, interim ops-via-Swagger ([ARCHITECTURE.md §10.3](../../ARCHITECTURE.md#103-merchant-web-panel))
+- Admin Dashboard — **UI-only prototype**, wiring in progress (`admin-endpoints`)
+- Financial Ledger — **implemented** as server-side writers + admin endpoint, no standalone ledger app
+- COD, OSM, food + grocery + errand + pickup_delivery (courier) + ride — **implemented**; `multi_stop` in the enum but no server endpoint
+- Weighted priority dispatch feed — **implemented**, shipped Phase 1 (see delta vs the full proposal in [rider-dispatch-weighting.md](../proposals/rider-dispatch-weighting.md))
+- Supabase Realtime — **implemented**; FCM — **stub, no real device delivery**
+- Render backend hosting (Singapore) — **implemented**
+- Threshold-based adaptive delivery fee (admin configurable) — **not implemented**; fee is computed server-side but not admin-tunable via a config table
+- Phone number verification for customers — **implemented** as a COD-checkout gate (not a SIM/signup requirement)
+- Mandatory valid ID for COD checkout — **not implemented** (no `id_document_url`/`id_verified` columns)
+- Rider custom drop-off points — implemented via `pickup_delivery`/`ride` coords
+- Support ticket + admin override system — **not implemented** (no `support_tickets` table)
+- Operational monitoring dashboard — UI-only prototype, not wired
 
 ### Phase 2 (future)
 
@@ -249,7 +254,7 @@ See [schema.md](./schema.md) for full RLS table.
 - Digital payments (GCash, Maya)
 - In-app turn-by-turn
 - Multi-province expansion
-- Auto-dispatch, surge pricing — see [rider-dispatch-weighting.md](../proposals/rider-dispatch-weighting.md) proposal
+- Staggered-wave dispatch, per-rider reliability scoring — the delta beyond the shipped Phase 1 ranked feed; see [rider-dispatch-weighting.md](../proposals/rider-dispatch-weighting.md)
 - Loyalty / promotions
 - Cartman Pro merchant subscription tier
 
@@ -260,15 +265,20 @@ See [schema.md](./schema.md) for full RLS table.
 | Decision | Options | Status | Blocks |
 |----------|---------|--------|--------|
 | Mobile framework | Flutter vs RN | **RESOLVED: Flutter** (confirmed Jul 1, 2026) | — |
-| Hosting provider | Render vs Railway | **RESOLVED: Railway** (confirmed Jul 1, 2026) | — |
-| Web framework | Vite vs Next.js | Vite for SPAs (recommended) | Web scaffolding |
-| Ledger UI | Separate app vs admin module | Admin module Phase 1 | Repo layout |
-| Courier fee | Client vs Edge Function | **Edge Function** (recommended) | Courier feature |
-| Geofencing | Polygons vs radius | Define in admin zone epic | Rider feed filter |
+| Hosting provider | Render vs Railway | **RESOLVED: Render** — `render.yaml` is live in `cartman-server`; the Jul 1 Railway decision noted below was superseded before launch | — |
+| Web framework | Vite vs Next.js | **RESOLVED: Next.js 16** — Admin Dashboard built on it | — |
+| Ledger UI | Separate app vs admin module | **RESOLVED: server-side writers + admin endpoint** — no standalone ledger app, no admin-module ledger UI wired yet either | Repo layout |
+| Courier fee | Client vs Edge Function | **Resolved differently than planned: server-side in `cartman-server`**, not an Edge Function | Courier feature |
+| Geofencing | Polygons vs radius | Open — no zone config surface built at all | Rider feed filter |
 | Distribution | Sideload vs Play Store | Sideload pilot → Franz's Play Console → Cartman PH account | Launch plan |
 | Organization account | Google/Apple org registration | Under investigation (Benjamen) | App store 14-day bypass |
-| PDF order printing | Support vs skip | Under investigation for larger merchants | Merchant panel |
-| 2FA implementation | Email OTP vs authenticator | **RESOLVED: Email OTP via Resend** (confirmed Jul 2, 2026) — raw HTTP call to Resend's API, no SDK, matching the existing Semaphore SMS pattern | — |
+| PDF order printing | Support vs skip | Under investigation for larger merchants | Merchant panel (itself not built) |
+| 2FA implementation | Email OTP vs authenticator | Planned: Email OTP via Resend (confirmed Jul 2, 2026 as a decision) — **not implemented**: `otp_codes.channel = 'email'` exists in schema but is dormant; only `sms` is wired | Email OTP rollout |
+| Dashboard auth strategy | Session cookie, Supabase Auth client, service-role proxy | Open — no login screen exists | Wiring dashboard to `/admin/*` |
+| Commissions model | Flat rate, per-merchant, or defer | Open — riders keep 100% of delivery fee today; `debit_commission` enum value unused | Merchants page "commission edit" |
+| `delivered_at` column | Add real column vs keep approximating | Open — avg-delivery-time is an `updated_at` approximation | Delivery-time reporting |
+| Incidents domain | Design schema vs defer | Open — no schema at all | Incidents page wiring |
+| FCM completion | Firebase project + fan-out vs stay stubbed | Open | Real push notifications |
 
 ---
 

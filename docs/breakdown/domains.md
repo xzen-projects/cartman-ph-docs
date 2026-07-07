@@ -78,36 +78,36 @@ flowchart TB
 
 ## 1. Identity and Access
 
-**Owner:** Platform (Supabase Auth + `profiles` + RLS)
+**Owner:** Supabase Auth (identity) + `cartman-server` (write-path authorization) + RLS (read-path defense-in-depth). See [ARCHITECTURE.md §6](../../ARCHITECTURE.md#6-authentication--authorization).
 
 | Concept | Storage | Consumers |
 |---------|---------|-----------|
-| User identity | `auth.users` | All apps |
-| Role assignment | `profiles.role` | Route guards, RLS |
-| Phone verification | `profiles.phone_verified` | Customer checkout gate |
-| Rider eligibility | `riders.verification_status`, `riders.is_active` | Rider app, order feed |
-| Merchant eligibility | `merchants.status` | Merchant panel, menu visibility |
+| User identity | `auth.users` (email + password, no email verification) | Customer + Rider apps |
+| Role assignment | `profiles.role` — only `customer`/`rider` are self-serve; `merchant`/`admin` set directly by ops | `cartman-server` `RolesGuard`, client route guards |
+| Phone verification | `profiles.phone_verified` | COD checkout gate — not a signup gate |
+| Rider eligibility | `riders.is_active` only | Rider app, order feed. **No `verification_status` column exists** — the approval workflow was never implemented |
+| Merchant eligibility | N/A — `merchants` has no `auth.users` FK | No merchant login exists |
 
-**Roles:** `customer`, `rider`, `merchant`, `admin`
+**Roles implemented:** `customer`, `rider` (self-serve). `merchant`, `admin` exist as `profiles.role` values but have no signup path.
 
-**Rule:** Single auth pool; authorization via profile role and RLS — not separate auth tenants.
+**Rule:** Single auth pool. Write-path authorization is server-side (`JwtAuthGuard` + `RolesGuard`); read-path is RLS — defense-in-depth, not the primary boundary.
 
 ---
 
 ## 2. Customer Commerce
 
-**Owner:** Customer mobile app  
+**Owner:** Customer mobile app writes through `cartman-server`; menu/merchant browse reads direct from Supabase.  
 **Backlog refs:** C-1.x through C-7.x
 
-| Capability | Domain Data | Local Cache |
-|------------|-------------|-------------|
-| Food ordering | `orders`, `order_items`, `menu_items` | Cart in Hive/AsyncStorage |
-| Errand / Pabili | `orders.custom_description` (JSONB) | — |
-| Courier booking | `orders.pickup_coords`, `dropoff_coords` | — |
-| Saved addresses | `saved_addresses` | — |
-| Order notes | `merchant_notes`, `rider_notes` | — |
-| Order history | `orders` (last 20 by customer) | — |
-| Contact on order | Verified phone from Auth metadata | — |
+| Capability | Domain Data | Write Path | Local Cache |
+|------------|-------------|------------|-------------|
+| Food / grocery ordering | `orders`, `order_items`, `menu_items` | `POST /orders/{food,grocery}` | Cart in Hive |
+| Errand / Pabili | `orders.custom_description` (JSONB) | `POST /orders/errand` | — |
+| Courier booking (`pickup_delivery`) | `orders.pickup_coords`, `dropoff_coords` | `POST /orders/courier`, fee computed server-side | — |
+| Saved addresses | `saved_addresses` | `cartman-server` address endpoints (mobile UI not yet wired to them) | — |
+| Order notes | `merchant_notes`, `rider_notes` | Via order placement | — |
+| Order history | `orders` (last 20 by customer) | `GET /orders/history` | — |
+| Contact on order | Verified phone from `profiles.phone` | — | — |
 
 **Payment domain (Phase 1):** COD only (`payment_method = cod`).
 
@@ -115,92 +115,102 @@ flowchart TB
 
 ## 3. Merchant Catalog
 
-**Owner:** Merchant web panel
+**Owner:** No merchant web panel exists (not built, [ARCHITECTURE.md §10.3](../../ARCHITECTURE.md#103-merchant-web-panel)). Menu/merchant data is read directly from Supabase by the mobile apps; catalog rows are seeded by ops, not self-managed.
 
 | Capability | Domain Data | Notes |
 |------------|-------------|-------|
-| Menu categories | `menu_categories` | Per merchant |
+| Menu categories | `menu_categories` | Per merchant, seeded by ops |
 | Menu items | `menu_items` | Price, stock, image URL |
 | Item images | Supabase Storage | Linked from `menu_items.image_url` |
 | Stock control | `menu_items.in_stock` | Hides from customer browse when false |
-| Order fulfillment | `orders` status transitions | `pending` → `preparing` → `ready_for_pickup` |
+| Order fulfillment | `orders` status transitions | `pending` → `preparing` → `ready_for_pickup`, done by ops via Swagger (`PATCH /orders/:id/accept\|ready`), not a merchant UI |
 
-Merchants with `status != active` do not appear in customer browse or receive live orders.
+`merchants` has no `status`/approval column in the implemented schema and no FK to `auth.users` — every merchant record is visible/active by construction; there is no pending/suspended state today.
 
 ---
 
 ## 4. Dispatch and Logistics
 
-**Owner:** Rider mobile app + Admin dashboard  
+**Owner:** `cartman-server` (writer for feed/claim/status/telemetry) + Rider mobile app + Admin dashboard (planned oversight, `admin-endpoints` in progress)  
 **Backlog refs:** R-1.x through R-6.x
 
 | Capability | Domain Data | Transport |
 |------------|-------------|-----------|
-| Available order feed | `orders` where `status = ready_for_pickup` | Supabase Realtime |
-| Order claim | `orders.assigned_rider_id`, `status` | Race-safe SQL UPDATE |
-| Status progression | `orders.status` | Rider button → DB write → Realtime |
-| Rider on-duty | `riders.is_active` | Toggles feed + GPS |
-| Live rider position | `rider_location_logs` | Background GPS inserts |
-| Declined orders (UI) | Local Hive/AsyncStorage | Not persisted server-side |
-| Service area | Admin zone config (Antique) | Filters rider broadcast |
+| Weighted priority feed | `GET /orders/feed` — `ready_for_pickup`, unassigned, ranked (0.40 age + 0.30 proximity + 0.20 payout + 0.10 type, env-tunable) | `cartman-server`; advisory only |
+| Feed change-signal | `orders` table change | Supabase Realtime → debounced refetch of the ranked feed |
+| Order claim | `orders.assigned_rider_id`, `status` | `PATCH /orders/:id/claim` — conditional `updateMany` in the server, first-writer-wins; gated by on-duty, queue-depth cap **2**, wallet-lock |
+| Status progression | `orders.status` | Rider button → `PATCH /orders/:id/status` (server legal-transition guard) → Realtime broadcast |
+| Rider on-duty | `riders.is_active` | `PATCH /riders/me/duty`; toggles feed + telemetry |
+| Rider telemetry | Batched `POST /riders/me/telemetry` | No `rider_location_logs`-style customer/admin live-map consumer yet |
+| Declined orders (UI) | Local Hive | Not persisted server-side |
+| Admin cancel / reassign | `orders.status`, `assigned_rider_id` | `PATCH /admin/orders/:id/{cancel,reassign}` (`admin-endpoints`, in progress) — cancel any pre-`delivered`; reassign pre-pickup only, mirrors claim guards |
+| Service area | **Not implemented** — no zone config exists; feed has no geographic filter beyond the 10 km proximity term | — |
 
-**Order types in dispatch:**
+**Order types in dispatch** (6-value `order_type` enum — see [schema.md](./schema.md)):
 
-| Type | Merchant step | Rider pickup |
-|------|---------------|--------------|
-| `food` | Required | Merchant location |
-| `errand` | Skipped / ops-handled | Store per `custom_description` |
-| `courier` | Skipped | Customer pickup coords |
+| Type | Merchant step | Rider pickup | Born status |
+|------|---------------|---------------|-------------|
+| `food`, `grocery` | Required (ops via Swagger) | Merchant location | `pending` |
+| `errand` | Skipped / ops-handled | Store per `custom_description` | `ready_for_pickup` |
+| `pickup_delivery` (courier) | Skipped | Customer pickup coords | `ready_for_pickup` |
+| `ride` (Pasakay) | Skipped | Passenger pickup coords | `ready_for_pickup` |
+| `multi_stop` | — | — | **Not implemented** — no server endpoint |
 
 ---
 
 ## 5. Financial Ledger
 
-**Owner:** Admin / Financial Ledger web (write); Rider app (read only)
+**Owner:** `cartman-server` — both writers live inside it, no DB trigger, no standalone ledger app. Rider app is read-only.
 
 | Concept | Rule |
 |---------|------|
 | Ledger table | `rider_wallet_transactions` — append-only |
-| Balance | Computed aggregate `W_r`, never client-mutable |
-| COD collection | `debit_cod_order` on delivery |
-| Rider earnings | `credit_delivery_reward` on `delivered` |
-| Cash remittance | `credit_remittance` logged by admin |
-| Lockout | `W_r <= -2000` → rider feed hidden |
+| Balance | Computed aggregate `W_r` (`rider_net_cash` / `LedgerService.getNetCash`), never client-mutable |
+| COD collection | `debit_cod_order` — written by the server's delivered-transition handler, transactionally + idempotently |
+| Rider earnings | `credit_delivery_reward` — same delivered-transition writer |
+| Cash remittance | `credit_remittance` via `POST /ledger/transactions` (`@Roles('admin')`) |
+| Commission | `debit_commission` exists in the enum but **nothing writes it** — not implemented |
+| Lockout | `rider_net_cash <= -2000` → `GET /orders/feed` and claim both `403` server-side; client-side check is display-only |
 
-**Forbidden writers:** Customer app, Rider app, Merchant panel.
+**Forbidden writers:** Customer app, Rider app, Admin dashboard (UI-only — no writes wired yet).
 
 ---
 
 ## 6. Operations and Admin
 
-**Owner:** Admin dashboard + Financial Ledger
+**Owner:** `Cartman-PH-Dashboard` (Next.js 16, **UI-only prototype** — no fetch layer, no auth) + `cartman-server`'s AdminModule (branch `admin-endpoints`, **in progress**).
 
-| Capability | Affects |
-|------------|---------|
-| Rider approval | `riders.verification_status` |
-| Merchant approval | `merchants.status` |
-| Dispatch oversight | All active orders, rider map |
-| Manual intervention | Order reassignment, cancellation, status override |
-| Zone management | Antique barangay/municipality config |
-| Rider suspension | `is_active`, `verification_status` |
-| System config | Fees, commission `C_m`, lockout threshold — managed via `system_config` table |
-| Delivery fee thresholds | Global adaptive threshold variables; configurable on the fly |
-| Financial reporting | Ledger aggregates |
-| Support tickets | Review and resolve user account issues via `support_tickets` |
-| Account overrides | Password reset, auth bypass, ID/phone verification override after ticket + user confirmation |
-| Operational monitoring | Active rider status, system health, end-to-end performance |
-| COD ID verification | Review uploaded ID documents; set `profiles.id_verified` |
+| Capability | Affects | Status |
+|------------|---------|--------|
+| Platform stats | — | `GET /admin/stats` — in progress |
+| Order list / detail | `orders` | `GET /admin/orders[/:id]` — in progress |
+| Order cancel | `orders.status` — any pre-`delivered` | `PATCH /admin/orders/:id/cancel` — in progress |
+| Order reassign | `orders.assigned_rider_id`, `status` — pre-pickup only, mirrors claim guards | `PATCH /admin/orders/:id/reassign` — in progress |
+| Fleet oversight | Rider list + `net_cash` + last telemetry | `GET /admin/riders` — in progress |
+| Merchant list | `merchants` | `GET /admin/merchants` — in progress |
+| Ledger read | `rider_wallet_transactions` | `GET /admin/ledger/transactions` — in progress |
+| Remittance posting | `rider_wallet_transactions` | `POST /ledger/transactions` — **already implemented**, predates the AdminModule |
+| Rider approval | — | **Not implemented** — no `verification_status` column exists; riders are eligible immediately on signup |
+| Merchant approval | — | **Not implemented** — `merchants` has no auth linkage or status column |
+| Zone management | — | **Not implemented** — no schema, no config surface |
+| Commission config | — | **Not implemented** — no field anywhere; dashboard's "commission edit" UI has nothing to write to |
+| Incidents | — | **Not implemented** — no schema; dashboard page is mock-only |
+| System config (fees, lockout threshold) | — | **Not implemented** — no `system_config` table exists |
+| Support tickets / account overrides | — | **Not implemented** — no `support_tickets` table exists |
+| Dashboard auth | — | **Not implemented** — no login screen, no session |
+
+All eight AdminModule endpoints are `@Roles('admin')`; list endpoints paginate `{items, total, limit, offset}`. See [ARCHITECTURE.md §10.4](../../ARCHITECTURE.md#104-admin-dashboard) for the page-by-page dependency table.
 
 ---
 
 ## 7. Notifications and Communications
 
-| Channel | Use Case | Trigger |
-|---------|----------|---------|
-| Supabase Realtime | In-app live updates | Postgres WAL on `orders`, wallet |
-| FCM | Lock-screen alerts | Edge Function / DB trigger on status change |
-| Semaphore SMS | Registration OTP | Edge Function on sign-up |
-| Native dialer | Rider → customer call | `tel:` link from order contact |
+| Channel | Use Case | Trigger | Status |
+|---------|----------|---------|--------|
+| Supabase Realtime | In-app live updates (order-watch, feed change-signal) | Postgres WAL on `orders` | Implemented |
+| FCM | Lock-screen alerts | `cartman-server` webhook receiver → FCM fan-out | **Stub — logging only, no device delivery**; `firebase_messaging` not in the mobile apps |
+| Semaphore SMS | Phone verification (COD gate, not registration) | `cartman-server` `POST /auth/send-otp` | Implemented; deprecated `otp-send`/`otp-verify` Edge Functions still exist as dormant files |
+| Native dialer | Rider → customer call | `tel:` link from order contact | Implemented |
 
 ---
 
@@ -210,7 +220,7 @@ Merchants with `status != active` do not appear in customer browse or receive li
 |---------|-------------|------------|
 | Customer app | OSM tiles, draggable pin | — |
 | Rider app | OSM (tracking context) | Deep link to Google/Apple/Waze |
-| Admin dashboard | OSM dispatch map | — |
+| Admin dashboard | Fleet page is UI-only mock — no live map wired to real telemetry yet | — |
 
 **Phase 1 constraint:** No Mapbox/Google in-app tile APIs (₱0 baseline).
 
@@ -222,9 +232,9 @@ Merchants with `status != active` do not appear in customer browse or receive li
 |-------------|-----------------|
 | Customer mobile | Identity, Commerce, Geo, Notifications |
 | Rider mobile | Identity, Dispatch, Finance (read), Geo, Notifications |
-| Merchant web | Identity, Catalog, Dispatch (merchant slice) |
-| Admin web | Identity, Ops, Dispatch (full), Geo |
-| Financial Ledger | Identity, Finance, Ops |
+| `cartman-server` | Identity (write-path auth), Commerce (writer), Catalog (fulfillment writes), Dispatch (writer), Finance (writer), Notifications (OTP/FCM) |
+| Merchant web | **Not built** — target domains would be Catalog, Dispatch (merchant slice) |
+| Admin web (`Cartman-PH-Dashboard`) | Identity (planned), Ops, Dispatch (planned, `admin-endpoints`), Finance (planned) — **UI-only today, not wired to any domain's write path** |
 
 ---
 
@@ -232,11 +242,11 @@ Merchants with `status != active` do not appear in customer browse or receive li
 
 | Event | Source Domain | Target Domains |
 |-------|---------------|----------------|
-| Order placed | Commerce | Catalog, Dispatch, Notifications |
-| Order ready | Catalog | Dispatch, Notifications |
-| Order claimed | Dispatch | Commerce, Catalog, Notifications |
-| Order delivered | Dispatch | Finance, Notifications |
-| Remittance logged | Finance | Dispatch (lockout lift) |
-| Merchant activated | Ops | Catalog, Commerce |
+| Order placed | Commerce (via `cartman-server`) | Catalog, Dispatch, Notifications |
+| Order ready | Catalog (ops via Swagger, §3) | Dispatch, Notifications |
+| Order claimed | Dispatch (`cartman-server` claim endpoint) | Commerce, Catalog, Notifications |
+| Order delivered | Dispatch | Finance (ledger write), Notifications |
+| Remittance logged | Finance (`POST /ledger/transactions`) | Dispatch (lockout lift) |
+| Merchant activated | — | **Not applicable** — merchants have no activation workflow (no auth linkage) |
 
 See [flows.md](./flows.md) for sequence diagrams.
