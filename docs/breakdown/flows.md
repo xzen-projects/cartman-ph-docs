@@ -285,14 +285,14 @@ sequenceDiagram
   participant RT as Supabase Realtime
 
   Admin->>Server: PATCH /admin/orders/:id/reassign {new_rider_id}
-  Note over Server: Pre-pickup only (status = accepted)
+  Note over Server: Pre-pickup only (status in ready_for_pickup / accepted / arrived_at_merchant)
   Note over Server: mirrors claim guards - on-duty, queue-depth cap 2, wallet not locked - for the new rider
   Server->>DB: UPDATE assigned_rider_id, status=accepted
   DB->>RT: WAL broadcast
   RT-->>Server: old rider's order-watch drops it, new rider's picks it up
 ```
 
-Both are `@Roles('admin')`. Cancel accepts any status before `delivered`; reassign is pre-pickup only (before `arrived_at_merchant`).
+Both are `@Roles('admin')`. Cancel accepts any status before `delivered`; reassign is pre-pickup only — legal from `ready_for_pickup`, `accepted`, or `arrived_at_merchant`, resetting the order to `accepted` for the new rider.
 
 ---
 

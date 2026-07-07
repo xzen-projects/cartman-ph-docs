@@ -299,7 +299,7 @@ pending → preparing → ready_for_pickup → accepted → arrived_at_merchant
   → picked_up → in_transit → delivered
 ```
 
-Terminal: **`canceled`** (one L — matches the Prisma enum), reachable from any pre-`delivered` status via admin cancel, or from `pending`/`preparing` via customer/admin cancel. See [ARCHITECTURE.md §8](../../ARCHITECTURE.md#8-order-lifecycle) for the full transition diagram including admin reassign.
+Terminal: **`canceled`** (one L — matches the Prisma enum), reachable from any pre-`delivered` status via admin cancel, or from `pending`/`ready_for_pickup` (while unassigned) via customer cancel. See [ARCHITECTURE.md §8](../../ARCHITECTURE.md#8-order-lifecycle) for the full transition diagram including admin reassign.
 
 ### `riders.verification_status` — **does not exist**
 

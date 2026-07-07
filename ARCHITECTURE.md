@@ -466,14 +466,15 @@ stateDiagram-v2
   preparing --> ready_for_pickup: ops_marks_ready_via_swagger
   preparing --> canceled: admin_cancels
 
-  ready_for_pickup --> accepted: rider_claims_order
-  ready_for_pickup --> canceled: admin_cancels
+  ready_for_pickup --> accepted: rider_claims_or_admin_assigns
+  ready_for_pickup --> canceled: customer_or_admin_cancels
 
   accepted --> arrived_at_merchant: rider_taps_arrived
-  accepted --> accepted: admin_reassigns_pre_pickup
+  accepted --> accepted: admin_reassigns
   accepted --> canceled: admin_cancels
 
   arrived_at_merchant --> picked_up: rider_confirms_pickup
+  arrived_at_merchant --> accepted: admin_reassigns
   arrived_at_merchant --> canceled: admin_cancels
   picked_up --> in_transit: rider_starts_delivery
   picked_up --> canceled: admin_cancels
@@ -484,7 +485,7 @@ stateDiagram-v2
   canceled --> [*]
 ```
 
-Admin cancel (`PATCH /admin/orders/:id/cancel`) accepts any pre-`delivered` status. Admin reassign (`PATCH /admin/orders/:id/reassign`) is pre-pickup only (`accepted`, before `arrived_at_merchant`).
+Admin cancel (`PATCH /admin/orders/:id/cancel`) accepts any pre-`delivered` status. Admin reassign (`PATCH /admin/orders/:id/reassign`) is pre-pickup only — legal from `ready_for_pickup`, `accepted`, or `arrived_at_merchant` (any status before the goods are physically picked up), always resetting the order to `accepted` for the new rider.
 
 `food` and `grocery` orders are born `pending` and require an ops accept/ready pass; `errand`, `pickup_delivery`, and `ride` are born `ready_for_pickup` directly (no merchant prep step). `multi_stop` is in the enum but has no server endpoint — not usable.
 
@@ -946,14 +947,16 @@ The original design routed OTP, fee calc, and push through Supabase Edge Functio
 
 | Table | Customer | Rider | Merchant | Admin |
 |-------|----------|-------|----------|-------|
-| `orders` | Own orders (SELECT) | Assigned + `ready_for_pickup` pool (SELECT) | — (no merchant auth linkage, §6) | Full access |
-| `order_items` | Via order ownership | Via assigned order | — | Full access |
-| `menu_items` | Active items (SELECT) | — | — | Full access |
-| `rider_wallet_transactions` | — | Own rows (SELECT only) | — | Full access |
-| `rider_location_logs` | Assigned rider on own order (SELECT) | Own rows (INSERT) | — | Full access |
-| `saved_addresses` | Own (CRUD) | — | — | Full access |
-| `merchants` | Active merchants (SELECT) | — | — | Full access |
-| `riders` | — | Own record (SELECT, UPDATE `is_active`) | — | Full access |
+| `orders` | Own orders (SELECT) | Assigned + `ready_for_pickup` pool (SELECT) | — (no merchant auth linkage, §6) | via server¹ |
+| `order_items` | Via order ownership | Via assigned order | — | via server¹ |
+| `menu_items` | Active items (SELECT) | — | — | via server¹ |
+| `rider_wallet_transactions` | — | Own rows (SELECT only) | — | via server¹ |
+| `rider_location_logs` | Assigned rider on own order (SELECT) | Own rows (INSERT) | — | via server¹ |
+| `saved_addresses` | Own (CRUD) | — | — | via server¹ |
+| `merchants` | Active merchants (SELECT) | — | — | via server¹ |
+| `riders` | — | Own record (SELECT, UPDATE `is_active`) | — | via server¹ |
+
+¹ No admin RLS policy exists (the RLS migration deliberately grants admins nothing directly); admin access runs exclusively through cartman-server's `/admin` endpoints, whose own DB connection is not subject to RLS.
 
 Row **writes** (order status, claim, wallet, OTP verification) shown here as RLS-permitted are, in practice, executed by the server using its own DB credentials after the `JwtAuthGuard`/`RolesGuard` checks — RLS on those tables is a second line of defense against a compromised client bypassing the server, not the primary gate.
 
