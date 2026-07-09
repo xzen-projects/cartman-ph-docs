@@ -118,11 +118,13 @@ Roles legend: **any** = any authenticated user (no `@Roles`). "Consumed by" valu
 curl -s http://localhost:3000/health
 ```
 
+> **OTP delivery is HELD.** Semaphore (SMS) and Resend (email) are kept in code but disabled by default while the platform migrates to Brevo (one provider for both). Delivery goes through the `OtpProvider` seam (`src/auth/otp-providers.ts`); the default provider is a **stub** that sends nothing and returns the code in the response for QA. Selection: `OTP_SMS_PROVIDER` (`stub` | `semaphore`) / `OTP_EMAIL_PROVIDER` (`stub` | `resend`), default `stub`; a provider's API key is required only when it is selected. The email-OTP routes (`send-email-otp` / `verify-email-otp`) remain dormant regardless.
+
 ### Auth (`/auth`)
 
 | Method & path | Roles | Purpose | Request | Response | Consumed by |
 |---|---|---|---|---|---|
-| `POST /auth/send-otp` | any | Send 6-digit SMS OTP via Semaphore. Throttled 10/min/user + 3/15min/phone. | `{phone}` — PH mobile, normalized to `+639XXXXXXXXX` (accepts `09…`, `639…`, `+639…`) | `{message}`; **`OTP_DEV_MODE=true` only:** also `{code}` (echoes the OTP instead of sending SMS — dev only, never in prod) | customer app |
+| `POST /auth/send-otp` | any | Send a 6-digit SMS OTP via the active SMS provider. Throttled 10/min/user + 3/15min/phone. | `{phone}` — PH mobile, normalized to `+639XXXXXXXXX` (accepts `09…`, `639…`, `+639…`) | `{message}`; when the provider is the **held stub** (the default — see OTP delivery note below) or `OTP_DEV_MODE=true`, also `{code}` (echoes the OTP instead of sending — dev/QA only, never for real users) | customer app |
 | `POST /auth/verify-otp` | any | Verify OTP; sets `profiles.phone_verified=true` + saves `phone`. Max 5 attempts/code, 10-min expiry. Throttled 10/min/user. | `{phone, code}` (code = 6 chars) | `{verified: true}` (errors are 400: invalid/expired/too many attempts) | customer app |
 | `POST /auth/send-email-otp` | public | **Dormant** — email verification is deferred scope | `{email}` | `{message}` (+`code` in dev mode) | — dormant |
 | `POST /auth/verify-email-otp` | public | **Dormant** | `{email, code}` | `{verified: true}` | — dormant |
