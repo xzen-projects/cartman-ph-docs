@@ -340,7 +340,7 @@ sequenceDiagram
   R-->>R: unlock rider home — toggle on-duty (riders.is_active) when ready
 ```
 
-**Not implemented:** the approval workflow (document upload, admin review, `verification_status: pending/approved/rejected/suspended`) originally designed here. The current schema has no `verification_status` column — `is_active` (on-duty toggle) is the only feed-eligibility gate. Treat approval as a deferred gap, not a shipped feature (§10.4 open items).
+**Not implemented as originally designed:** the `verification_status: pending/approved/rejected/suspended` approval workflow described here. The schema still has no `verification_status` column, and `is_active` (on-duty toggle) remains the **only** feed-eligibility gate. Admin Dashboard V2 (§10.4) added a lighter-weight, differently-scoped mechanism — a generic `verifications` review queue (COD ID / Merchant Business Permit) plus a `riders.is_verified` boolean an admin can flip via `POST /admin/verifications/:id/approve` — but that flag does **not** gate the feed and there is still no rider-app document-upload UI feeding it. Treat feed-gated rider approval as a deferred gap, not a shipped feature.
 
 ### Merchant Onboarding Flow
 
@@ -764,10 +764,10 @@ Central operations console for Antique Province launch.
 | Fleet + COD reconcile | `/fleet` | UI-only, mock data |
 | Merchants + commission edit | `/merchants` | UI-only, mock data — commission edit has no backing field (§11) |
 | Finance / ledger + fee calculator | `/finance` | UI-only, mock data |
-| Incidents | `/incidents` | UI-only, mock data — no incidents schema anywhere (§16) |
-| Settings | `/settings` | UI-only, mock data |
+| Incidents | `/incidents` | UI-only, mock data — backend now exists (`incidents` table + 3 endpoints, Admin V2), page itself still unwired |
+| Settings | `/settings` | UI-only, mock data — backend now exists for global config (`global_config` table + 2 endpoints, Admin V2), page itself still unwired |
 
-**AdminModule (`cartman-server`, branch `admin-endpoints`, in progress)** — the backend half of wiring this dashboard up. All endpoints `@Roles('admin')`, list endpoints paginated `{items, total, limit, offset}`:
+**AdminModule (`cartman-server`)** — the backend half of wiring this dashboard up. All endpoints `@Roles('admin')`, list endpoints paginated `{items, total, limit, offset}`. Original 8 routes on branch `admin-endpoints`; the 13 **Admin Dashboard V2** routes below on branch `admin-v2`:
 
 | Endpoint | Purpose | Feeds which page |
 |----------|---------|-------------------|
@@ -779,6 +779,11 @@ Central operations console for Antique Province launch.
 | `GET /admin/riders` | Fleet + `net_cash` + last telemetry | Fleet |
 | `GET /admin/merchants` | Merchant list | Merchants |
 | `GET /admin/ledger/transactions` | Ledger read | Finance |
+| `GET /admin/incidents`, `POST /admin/incidents`, `PATCH /admin/incidents/:id` | List / log / update-status of operational incidents | Incidents |
+| `GET /admin/config`, `POST /admin/config` | Read / partial-update the singleton `global_config` row (pricing, rider, merchant params) — **store-and-serve only, not wired into live pricing/commission** | Settings |
+| `GET /admin/users`, `POST /admin/users/:id/{bypass-auth,reset-2fa,toggle-status}` | Cross-platform user list + manual auth interventions (unban, recovery-link generation, suspend toggle) | **No page in the current 7-page prototype** — closest existing candidates are Fleet (rider fields) or Settings, but neither renders a user table today |
+| `GET /admin/verifications`, `POST /admin/verifications/:id/{approve,reject}` | COD ID / Merchant Business Permit review queue; approve sets `riders.is_verified=true` for rider submitters | **No page in the current 7-page prototype** — conceptually splits across Fleet (rider COD ID) and Merchants (business permit), but no queue UI exists on either |
+| `GET /admin/tickets`, `PATCH /admin/tickets/:id/status` | Multi-channel support ticket list + status update | **No page in the current 7-page prototype** |
 
 **Page → dependency table (what's still missing beyond the endpoint existing):**
 
@@ -787,12 +792,14 @@ Central operations console for Antique Province launch.
 | Overview | `GET /admin/stats` | Endpoint in progress; page not wired |
 | Dispatch | `GET /admin/orders[/:id]`, `PATCH .../cancel`, `PATCH .../reassign` | Endpoints in progress; page not wired |
 | Fleet + COD reconcile | `GET /admin/riders` | Endpoint in progress; page not wired |
-| Merchants | `GET /admin/merchants` | Endpoint covers listing only — **commission-rate editing has no backend field** (§11); marked deferred |
+| Merchants | `GET /admin/merchants` | Endpoint covers listing only — **commission-rate editing has no backend field** (§11, unchanged by Admin V2 — `global_config.merchantConfig` covers pro-exposure/ads only, not a commission rate); marked deferred |
 | Finance / ledger | `GET /admin/ledger/transactions`, existing `POST /ledger/transactions` | List endpoint in progress; posting endpoint already exists; page not wired |
-| Incidents | — | **No backend — deferred.** No `incidents` table, no endpoints, no plan |
-| Settings | — | No backend — deferred |
+| Incidents | `GET/POST /admin/incidents`, `PATCH /admin/incidents/:id` | **Backend implemented** (Admin V2); page still renders mock data, not wired |
+| Settings | `GET/POST /admin/config` | **Backend implemented** (Admin V2), store-and-serve only; page still renders mock data, not wired |
 
-**Deferred gaps (platform-wide, surfaced here because the dashboard is where ops would configure them):** incidents domain (no schema), per-merchant commission rate (no schema; rider currently receives 100% of the delivery fee), zone management, dashboard auth strategy (no login screen, no session, no role check on the Next.js side yet).
+Admin V2 also shipped a **user-overrides + verification-pipeline + support-ticket backend with no corresponding dashboard page** — the 7-page prototype predates these three domains. Wiring them needs new pages, not just a fetch layer bolted onto an existing one.
+
+**Deferred gaps (platform-wide, surfaced here because the dashboard is where ops would configure them):** per-merchant commission rate (no schema field; rider currently receives 100% of the delivery fee — `global_config` does not add one), commission/pricing not live-wired (`global_config` is store-and-serve only — `orders.service.ts` still uses its own hardcoded pricing constants), zone management, dashboard auth strategy (no login screen, no session, no role check on the Next.js side yet — this blocks wiring *every* endpoint above, old and new alike), FCM/email delivery for notifications this dashboard would trigger (re-upload on verification reject, `reset-2fa` action-link email — both held pending Brevo/FCM completion).
 
 ### 10.5 Financial Ledger
 
@@ -1023,8 +1030,8 @@ The rider app uses an Android **foreground service** with a persistent notificat
 | Web framework | Vite SPA vs Next.js | **Resolved: Next.js 16** — Admin Dashboard built on it | — |
 | Dashboard auth strategy | Session cookie, Supabase Auth client, or service-role proxy | Open — no login screen exists yet | Wiring the dashboard to `/admin/*` |
 | `delivered_at` column | Add a real column vs keep approximating from `updated_at` | Open — avg-delivery-time is currently an `updated_at` approximation | Accurate delivery-time reporting, `daily_throughput`-style metrics |
-| Incidents domain | Design schema vs defer | Open — no schema, dashboard page is mock-only | Incidents page wiring |
-| Commissions model | Flat rate, per-merchant, or defer | Open — riders currently keep 100% of the delivery fee; `debit_commission` enum value unused | Merchants page "commission edit" wiring |
+| Incidents domain | Design schema vs defer | **Resolved (backend):** `incidents` table + 3 endpoints shipped on `admin-v2` (§10.4). Open: dashboard Incidents page still renders mock data, not wired | Incidents page wiring |
+| Commissions model | Flat rate, per-merchant, or defer | Open — riders currently keep 100% of the delivery fee; `debit_commission` enum value unused. `global_config` (Admin V2) added store-and-serve pricing/rider/merchant parameters, but none are wired into live commission calculation, and it has no per-merchant field — the flat-vs-per-merchant decision itself remains unresolved | Merchants page "commission edit" wiring |
 | FCM completion | Firebase project + `firebase-admin` fan-out vs stay stubbed | Open | Real push notifications |
 | Merchant panel | Build vs stay on Swagger-ops interim | Open | Self-service merchant order fulfillment |
 | Antique geofencing | Municipality polygons vs radius from hub | Open — no zone config surface built | Rider feed filtering |

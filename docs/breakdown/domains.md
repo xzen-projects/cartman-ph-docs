@@ -85,7 +85,7 @@ flowchart TB
 | User identity | `auth.users` (email + password, no email verification) | Customer + Rider apps |
 | Role assignment | `profiles.role` — only `customer`/`rider` are self-serve; `merchant`/`admin` set directly by ops | `cartman-server` `RolesGuard`, client route guards |
 | Phone verification | `profiles.phone_verified` | COD checkout gate — not a signup gate |
-| Rider eligibility | `riders.is_active` only | Rider app, order feed. **No `verification_status` column exists** — the approval workflow was never implemented |
+| Rider eligibility | `riders.is_active` only | Rider app, order feed. **No `verification_status` column exists** — the approval workflow was never implemented. `riders.is_verified` (Admin V2, §6 below) is a separate, lighter flag set via admin approval of a `verifications` row — it does **not** gate the feed |
 | Merchant eligibility | N/A — `merchants` has no `auth.users` FK | No merchant login exists |
 
 **Roles implemented:** `customer`, `rider` (self-serve). `merchant`, `admin` exist as `profiles.role` values but have no signup path.
@@ -178,7 +178,7 @@ flowchart TB
 
 ## 6. Operations and Admin
 
-**Owner:** `Cartman-PH-Dashboard` (Next.js 16, **UI-only prototype** — no fetch layer, no auth) + `cartman-server`'s AdminModule (branch `admin-endpoints`, **in progress**).
+**Owner:** `Cartman-PH-Dashboard` (Next.js 16, **UI-only prototype** — no fetch layer, no auth) + `cartman-server`'s AdminModule (branch `admin-endpoints` for the original 8 routes; branch `admin-v2` for the 13 Admin Dashboard V2 routes below).
 
 | Capability | Affects | Status |
 |------------|---------|--------|
@@ -190,16 +190,17 @@ flowchart TB
 | Merchant list | `merchants` | `GET /admin/merchants` — in progress |
 | Ledger read | `rider_wallet_transactions` | `GET /admin/ledger/transactions` — in progress |
 | Remittance posting | `rider_wallet_transactions` | `POST /ledger/transactions` — **already implemented**, predates the AdminModule |
-| Rider approval | — | **Not implemented** — no `verification_status` column exists; riders are eligible immediately on signup |
-| Merchant approval | — | **Not implemented** — `merchants` has no auth linkage or status column |
+| Incidents | `incidents` table | **Implemented** (Admin V2) — `GET/POST /admin/incidents`, `PATCH /admin/incidents/:id`; dashboard Incidents page still mock-only, not wired |
+| System / business config | `global_config` (singleton) | **Implemented, store-and-serve only** (Admin V2) — `GET/POST /admin/config` covers pricing (base rate/radius, surcharge per km), rider (strike limit, auto-assign), merchant (pro-exposure multiplier, ads) params. **Not wired** into live delivery-fee/commission calc; wallet lockout threshold (−₱2,000) remains hardcoded, not in this table |
+| Support tickets | `tickets` table | **Implemented** (Admin V2) — `GET /admin/tickets`, `PATCH /admin/tickets/:id/status`. No dashboard page consumes it yet (the 7-page prototype predates this domain) |
+| Account overrides | `profiles.suspended`, Supabase auth user | **Implemented** (Admin V2) — `GET /admin/users`, `POST /admin/users/:id/{bypass-auth,reset-2fa,toggle-status}`. `reset-2fa` returns a Supabase recovery `action_link`; email delivery is held pending Brevo, so an admin relays it manually. No dashboard page consumes any of this yet |
+| Rider/merchant document review | `verifications` table, `riders.is_verified` | **Implemented, partial** (Admin V2) — `GET /admin/verifications`, `POST /admin/verifications/:id/{approve,reject}`. Approve sets `riders.is_verified=true` for rider submitters, but that flag does **not** gate the order feed (`is_active` still the only gate), and a "Merchant Business Permit" verification has no link back to a `merchants` row (which still has no status column). No mobile upload UI, no dashboard page |
+| Commission config (per-merchant rate) | — | **Still not implemented** — `global_config`'s merchant block covers pro-exposure/ads only, not a commission rate; dashboard's "commission edit" UI still has nothing to write to |
+| Rider approval (feed-gating) | — | **Still not implemented** — no `verification_status` column exists; `is_active` remains the only feed-eligibility gate (`riders.is_verified` above is a separate, non-gating flag) |
 | Zone management | — | **Not implemented** — no schema, no config surface |
-| Commission config | — | **Not implemented** — no field anywhere; dashboard's "commission edit" UI has nothing to write to |
-| Incidents | — | **Not implemented** — no schema; dashboard page is mock-only |
-| System config (fees, lockout threshold) | — | **Not implemented** — no `system_config` table exists |
-| Support tickets / account overrides | — | **Not implemented** — no `support_tickets` table exists |
-| Dashboard auth | — | **Not implemented** — no login screen, no session |
+| Dashboard auth | — | **Not implemented** — no login screen, no session; blocks wiring every endpoint above, old and new alike |
 
-All eight AdminModule endpoints are `@Roles('admin')`; list endpoints paginate `{items, total, limit, offset}`. See [ARCHITECTURE.md §10.4](../../ARCHITECTURE.md#104-admin-dashboard) for the page-by-page dependency table.
+All 21 AdminModule endpoints (8 original + 13 Admin Dashboard V2) are `@Roles('admin')`; list endpoints paginate `{items, total, limit, offset}`. See [ARCHITECTURE.md §10.4](../../ARCHITECTURE.md#104-admin-dashboard) for the page-by-page dependency table.
 
 ---
 
