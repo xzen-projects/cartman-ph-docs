@@ -10,7 +10,7 @@
 
 **Swagger UI:** `/api/docs` — always on in dev; in production only when `SWAGGER_ENABLED=true` (kept available because interim merchant ops run through Swagger until the merchant panel exists).
 
-**Source of truth:** the controllers and services in `cartman-server/src/`. This document reflects branch `admin-endpoints` (tip `4aa30b3`, PRing into `mvp-readiness`). **Code wins on any conflict — update this doc when controllers change.**
+**Source of truth:** the controllers and services in `cartman-server/src/`. This document reflects branch `admin-endpoints` (tip `4aa30b3`, PRing into `mvp-readiness`) plus **Admin Dashboard V2** — incidents, global config, user overrides, verification pipeline, support tickets — which landed on branch `admin-v2` (tip `2f4681b`, PR pending). **Code wins on any conflict — update this doc when controllers change.**
 
 ---
 
@@ -275,9 +275,9 @@ curl -s -X POST http://localhost:3000/webhooks/supabase \
   -d '{"type":"UPDATE","record":{"id":"...","status":"accepted","customer_id":"..."},"old_record":{"status":"ready_for_pickup"}}'
 ```
 
-### Admin (`/admin`) — all admin-only, all on branch `admin-endpoints`
+### Admin (`/admin`) — all admin-only
 
-Class-level `@Roles('admin')`. Lists use the `{items, total, limit, offset}` envelope (limit 1–100, default 20; offset default 0).
+Class-level `@Roles('admin')`, all methods on a single `AdminController`. Lists use the `{items, total, limit, offset}` envelope (limit 1–100, default 20; offset default 0). Original 8 routes are on branch `admin-endpoints`; the 13 Admin Dashboard V2 routes below are on branch `admin-v2`.
 
 | Method & path | Roles | Purpose | Request | Response | Consumed by |
 |---|---|---|---|---|---|
@@ -295,12 +295,45 @@ curl -s "http://localhost:3000/admin/orders?status=ready_for_pickup,accepted&typ
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
+#### Admin Dashboard V2 — incidents, config, users, verifications, tickets
+
+New tables: `incidents`, `verifications`, `tickets`, `global_config` (singleton, id=1), plus `profiles.suspended` and `riders.is_verified`. All four tables are **admin/server-only** — RLS enabled with no policies; mobile apps never read them directly (mirrored in `cartman-mobile/supabase/migrations/20260709000100_admin_v2.sql`).
+
+| Method & path | Roles | Purpose | Request | Response | Consumed by |
+|---|---|---|---|---|---|
+| `GET /admin/incidents` | admin | Incident/system-alert list, newest first | query: `limit`, `offset` | envelope; items = incidents row `{id, type, severity, status, related_order, assignee, reported_at}` | dashboard (planned) |
+| `POST /admin/incidents` | admin | Log a new incident (status defaults `Open`) | `{type, severity, relatedOrder?, assignee?}` | created incidents row | dashboard (planned) |
+| `PATCH /admin/incidents/:id` | admin | Update incident status | `{status}` ∈ `Open`\|`Investigating`\|`Resolved` | updated incidents row (404 unknown id) | dashboard (planned) |
+| `GET /admin/config` | admin | Read the singleton `global_config` row (created on first read if missing) | — | flat snake_case row: `{id, base_rate, base_radius, surcharge_per_km, strike_limit, auto_assign, pro_exposure_multiplier, allow_ads, updated_at}` — `base_rate`/`surcharge_per_km` are **pesos as `Decimal`→Number, not centavos**, breaking from the BigInt-centavos convention used everywhere else in this API | dashboard (planned) |
+| `POST /admin/config` | admin | Partial update (upsert) of `global_config`. **STORE-AND-SERVE ONLY** — not wired into live delivery-fee/commission/dispatch calculations; `orders.service.ts` still uses its own hardcoded pricing constants. | nested camelCase, every block/field optional: `{pricingConfig?: {baseRate?, baseRadius?, surchargePerKm?}, riderConfig?: {strikeLimit?, autoAssign?}, merchantConfig?: {proExposureMultiplier?, allowAds?}}` | same flat snake_case row as `GET /admin/config` | dashboard (planned) |
+| `GET /admin/users` | admin | Cross-platform user list | query: `limit`, `offset`, `role` (one of `customer`\|`rider`\|`merchant`\|`admin`) | envelope; items: `{id, full_name, phone, role, suspended, phone_verified}`, plus `{is_active, is_verified, wallet_locked}` when the user is a rider (`wallet_locked` derived from net cash ≤ −₱2,000; raw net cash not returned) | dashboard (planned) |
+| `POST /admin/users/:id/bypass-auth` | admin | Unban the Supabase auth user (`ban_duration: 'none'` via service role) and clear `profiles.suspended` to match | — | `{message}` | dashboard (planned) |
+| `POST /admin/users/:id/reset-2fa` | admin | Generate a Supabase `recovery` action link for the user | — | `{message, action_link}` — **email delivery is HELD pending Brevo**; the admin must relay `action_link` to the user out-of-band | dashboard (planned) |
+| `POST /admin/users/:id/toggle-status` | admin | Flip `profiles.suspended` (ban/unban) | — | `{id, suspended}` | dashboard (planned) |
+| `GET /admin/verifications` | admin | COD ID / Merchant Business Permit review queue, newest first | query: `limit`, `offset`, `status` ∈ `Pending`\|`Approved`\|`Rejected` | envelope; items = verifications row `{id, user_id, document_type, document_url, status, submitted_at}` | dashboard (planned) |
+| `POST /admin/verifications/:id/approve` | admin | Approve (one transaction): sets `status=Approved`; if the verification's `user_id` is a rider, also sets `riders.is_verified=true` | — | updated verifications row (404 unknown id) | dashboard (planned) |
+| `POST /admin/verifications/:id/reject` | admin | Sets `status=Rejected` | — | updated verifications row (404 unknown id); re-upload notification is a **no-op** — push/email delivery is held | dashboard (planned) |
+| `GET /admin/tickets` | admin | Multi-channel support ticket list, newest first | query: `limit`, `offset`, `status` ∈ `Open`\|`In Progress`\|`Closed` | envelope; items = tickets row `{id, user_id, category, subject, priority, status, created_at}` | dashboard (planned) |
+| `PATCH /admin/tickets/:id/status` | admin | Update ticket status | `{status}` ∈ `Open`\|`In Progress`\|`Closed` | updated tickets row (404 unknown id) | dashboard (planned) |
+
+```bash
+curl -s http://localhost:3000/admin/config \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+curl -s -X POST http://localhost:3000/admin/verifications/$VERIFICATION_ID/approve \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+**Note on `riders.is_verified`:** set by `POST /admin/verifications/:id/approve`, but it is **not** a feed-eligibility gate — `riders.is_active` (on-duty) remains the only gate `GET /orders/feed` checks. There is also no mobile-app upload UI feeding `verifications` yet; rows are created by ops/Swagger today.
+
 ---
 
 ## Authority & status notes
 
 - **Code wins.** This reference is derived from the controllers/DTOs/services in `cartman-server/src/`; if it disagrees with the code, the code is right — fix this doc in the same change that alters a controller.
-- **Branch status:** the `/admin/*` routes (and the global-guard ordering fix they rely on) live on `admin-endpoints` (tip `4aa30b3`), PRing into `mvp-readiness`. Everything else is on `mvp-readiness`.
-- **Deferred / not implemented:** incidents, commissions (`debit_commission` exists in the enum but nothing writes it), merchant panel (ops via Swagger), admin dashboard UI (endpoints exist; the Next.js prototype is planned), real FCM fan-out (`webhooks.service.ts` is a logging stub; `firebase_messaging` not in the apps), `multi_stop` orders (enum value exists; no endpoint, UI entry hidden), email verification (email-OTP routes dormant).
+- **Branch status:** the original 8 `/admin/*` routes (and the global-guard ordering fix they rely on) live on `admin-endpoints` (tip `4aa30b3`), PRing into `mvp-readiness`. The 13 Admin Dashboard V2 routes (incidents, config, users, verifications, tickets) live on `admin-v2` (tip `2f4681b`), PR pending. Everything else is on `mvp-readiness`.
+- **Deferred / not implemented:** merchant panel (ops via Swagger), admin dashboard UI (endpoints exist; the Next.js prototype is planned — none of the new V2 endpoints have a dashboard page wired to them yet either), real FCM fan-out (`webhooks.service.ts` is a logging stub; `firebase_messaging` not in the apps), `multi_stop` orders (enum value exists; no endpoint, UI entry hidden), email verification (email-OTP routes dormant), email delivery for `reset-2fa` action links (held pending Brevo — see `POST /admin/users/:id/reset-2fa` above).
+  - **Partial gap — commission/pricing not live-wired:** `debit_commission` exists in the `wallet_txn_type` enum but nothing writes it, and `POST /admin/config`'s `pricingConfig`/`riderConfig`/`merchantConfig` are **store-and-serve only** — none of it feeds `orders.service.ts`'s live delivery-fee, commission, or dispatch calculations. Riders still keep the full delivery fee.
+  - Incidents, verification pipeline (COD ID / Merchant Business Permit review), and support tickets are **no longer deferred** — implemented as of Admin Dashboard V2 (see table above).
 
-**Route count: 52** (root 2, auth 5, profiles 7, orders 12, riders 5, merchants 7, ledger 4, storage 1, webhooks 1, admin 8).
+**Route count: 65** (root 2, auth 5, profiles 7, orders 12, riders 5, merchants 7, ledger 4, storage 1, webhooks 1, admin 21 [8 original + 13 Admin Dashboard V2]).
