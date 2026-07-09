@@ -939,7 +939,7 @@ The original design routed OTP, fee calc, and push through Supabase Edge Functio
 
 ## 13. Security & Row-Level Security
 
-**Writes are enforced by the server middleware pipeline, not RLS.** `cartman-server` fronts every write with: `JwtAuthGuard` (validates the Supabase JWT via `SUPABASE_JWT_SECRET`) → `RolesGuard` (`profiles.role` against `@Roles(...)`) → `helmet` → env-driven CORS → `ThrottlerGuard` (100/min global, 10/min on OTP) → global `ValidationPipe({whitelist: true})` → a global exception filter → env validation at boot.
+**Writes are enforced by the server middleware pipeline, not RLS.** `cartman-server` fronts every write with (app-level, from `main.ts`) `helmet` + env-driven CORS + `trust proxy`, then the guard chain `JwtAuthGuard` (validates the Supabase JWT via `SUPABASE_JWT_SECRET`) → `UserOrIpThrottlerGuard` (200/min keyed per authenticated user, 10/min on OTP; the webhook is exempt) → `RolesGuard` (`profiles.role` against `@Roles(...)`), then the global `ValidationPipe({whitelist: true})` → a global exception filter, with env validation at boot.
 
 **RLS is defense-in-depth for the surfaces that still read directly from Supabase** (merchant/menu browse, per-order realtime watch, the feed's Realtime change-signal) — 18 policies live in `cartman-mobile/supabase/migrations`. It is not the primary authorization boundary for anything the mobile apps write; those calls go through the server, where role checks happen in application code, not Postgres policy.
 
@@ -963,7 +963,7 @@ Row **writes** (order status, claim, wallet, OTP verification) shown here as RLS
 ### Security Rules
 
 1. **No client-side wallet mutations** — Rider app never INSERTs/UPDATEs `rider_wallet_transactions`; only reads via `GET /ledger/me/*`.
-2. **OTP rate limiting** — `cartman-server`'s `ThrottlerGuard` at 10 requests/min on the OTP routes (replaces the original per-phone Edge Function throttle).
+2. **OTP rate limiting** — `cartman-server`'s throttler at 10 requests/min on the OTP routes (on top of the 200/min per-user global), plus `OtpService`'s DB-backed 3-codes-per-15-min-per-phone limit (replaces the original per-phone Edge Function throttle).
 3. **PII scoping** — Customer phone visible to assigned rider only during active order.
 4. **Uploads** — Storage writes (avatar, docs) route through the server's multipart endpoint, not direct client-to-Storage writes.
 5. **Service role key** — Used only in server-side jobs; never shipped in mobile APKs. `cartman-server` itself authenticates to Postgres via `DATABASE_URL`/`DIRECT_URL`, not the Supabase service role key.

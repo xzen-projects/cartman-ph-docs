@@ -200,7 +200,7 @@ There is no `MerchantsModule` for panel-style menu/stock CRUD — menu browse is
 | PII | Customer phone visible to assigned rider during active order only | Implemented |
 | Secrets | Service role key not used by `cartman-server` (it authenticates via `DATABASE_URL`/`DIRECT_URL`); never shipped in APKs | Implemented |
 | Merchant docs | N/A — no merchant document upload exists | Not applicable (§10.3) |
-| API protection | `helmet`, env-driven CORS, `ThrottlerGuard` (100/min global), global `ValidationPipe({whitelist:true})`, exception filter, env validation at boot | Implemented |
+| API protection | `helmet`, env-driven CORS, `UserOrIpThrottlerGuard` (200/min per user, webhook exempt), global `ValidationPipe({whitelist:true})`, exception filter, env validation at boot | Implemented |
 | Server | Single Singapore server (Render); no CDN required for current PH volume | Implemented |
 | Phone verification | Phone OTP gates COD checkout, not account creation | Implemented, but not a signup requirement (see Open Decisions history) |
 | COD fraud prevention | Valid-ID popup at checkout | **Not implemented** — no `id_document_url`/`id_verified` columns exist |

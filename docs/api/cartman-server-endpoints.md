@@ -79,9 +79,10 @@ All errors are JSON via the global exception filter + `ValidationPipe`:
 
 ### Rate limits
 
-- **Global:** 100 requests/min per IP (`ThrottlerModule`; `trust proxy` is set so Render's `X-Forwarded-For` gives real client IPs).
-- **Phone OTP routes** (`POST /auth/send-otp`, `POST /auth/verify-otp`): 10 requests/min per IP, plus a DB-backed limit of **3 codes per 15 min per phone number** inside `OtpService`.
-- Breaching either returns **429**.
+- **Global:** 200 requests/min, keyed **per authenticated user** (`UserOrIpThrottlerGuard` returns the JWT user id; it falls back to the client IP only on `@Public` routes). User keying — rather than IP — keeps subscribers who share a carrier-grade NAT IP from throttling each other. `trust proxy` is set so Render's `X-Forwarded-For` yields the real client IP for the fallback. 200/min sits above the busiest legitimate client (an on-duty rider whose feed refetches on every realtime change) while still capping a runaway client.
+- **Phone OTP routes** (`POST /auth/send-otp`, `POST /auth/verify-otp`): 10 requests/min (per user), plus a DB-backed limit of **3 codes per 15 min per phone number** inside `OtpService`.
+- **`POST /webhooks/supabase`** is exempt (`@SkipThrottle()`): it comes from a single Supabase egress IP in bursts and is authenticated by a shared-secret header, not throttling.
+- Breaching a limit returns **429**.
 
 ### Money conventions
 
@@ -121,8 +122,8 @@ curl -s http://localhost:3000/health
 
 | Method & path | Roles | Purpose | Request | Response | Consumed by |
 |---|---|---|---|---|---|
-| `POST /auth/send-otp` | any | Send 6-digit SMS OTP via Semaphore. Throttled 10/min/IP + 3/15min/phone. | `{phone}` — PH mobile, normalized to `+639XXXXXXXXX` (accepts `09…`, `639…`, `+639…`) | `{message}`; **`OTP_DEV_MODE=true` only:** also `{code}` (echoes the OTP instead of sending SMS — dev only, never in prod) | customer app |
-| `POST /auth/verify-otp` | any | Verify OTP; sets `profiles.phone_verified=true` + saves `phone`. Max 5 attempts/code, 10-min expiry. Throttled 10/min/IP. | `{phone, code}` (code = 6 chars) | `{verified: true}` (errors are 400: invalid/expired/too many attempts) | customer app |
+| `POST /auth/send-otp` | any | Send 6-digit SMS OTP via Semaphore. Throttled 10/min/user + 3/15min/phone. | `{phone}` — PH mobile, normalized to `+639XXXXXXXXX` (accepts `09…`, `639…`, `+639…`) | `{message}`; **`OTP_DEV_MODE=true` only:** also `{code}` (echoes the OTP instead of sending SMS — dev only, never in prod) | customer app |
+| `POST /auth/verify-otp` | any | Verify OTP; sets `profiles.phone_verified=true` + saves `phone`. Max 5 attempts/code, 10-min expiry. Throttled 10/min/user. | `{phone, code}` (code = 6 chars) | `{verified: true}` (errors are 400: invalid/expired/too many attempts) | customer app |
 | `POST /auth/send-email-otp` | public | **Dormant** — email verification is deferred scope | `{email}` | `{message}` (+`code` in dev mode) | — dormant |
 | `POST /auth/verify-email-otp` | public | **Dormant** | `{email, code}` | `{verified: true}` | — dormant |
 | `GET /auth/me` | any | Current user's profile incl. nested `rider` row (or `null`) | — | profiles row: `{id, full_name, phone, phone_verified, role, avatar_url, membership_tier, cart_points, wallet_centavos, created_at, rider}` (points/wallet as Numbers) | customer + rider apps |
